@@ -5,8 +5,7 @@ from ..models import Chunk
 class BaseChunker(ABC):
     @abstractmethod
     def chunk(
-        self, text: str, file_path: str,
-        max_chunk_size: int
+        self, text: str, file_path: str, max_chunk_size: int
     ) -> list[Chunk]:
         """
         Takes raw text and splits it into chunks.
