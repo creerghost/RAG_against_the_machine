@@ -7,7 +7,13 @@ class Application:
 
     def run(self):
         try:
-            print("hi")
+            from ..chunking import MarkdownChunker
+            file_name = "README.md"
+            with open(file_name, "r") as f:
+                text = f.read()
+            chunker = MarkdownChunker()
+            chunker.chunk(text, file_name, 2000)
+            print(chunker)
         except Exception as e:
             print(f"Error: {e}")
-            sys.quit(1)
+            sys.exit(1)
