@@ -1,0 +1,28 @@
+[project]
+name = "RAG_against_the_machine"
+version = "0.1.0"
+description = "Retrieval-Augmented Generation from scratch"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "vlnikola", email = "vlnikola@student.42prague.com" },
+]
+dependencies = [
+    "vllm",
+    "fire",
+    "pydantic>=2.10.0",
+    "tqdm",
+    "rank-bm25",
+    "torch>=2.0",
+    "transformers>=4.40",
+]
+
+[dependency-groups]
+dev = [
+    "flake8>=7.0.0",
+    "mypy>=1.10.0",
+    "pytest>=7.0.0",
+]
+
+[tool.uv.sources]
+llm-sdk = { path = "./vllm_0.10.1", editable = true }
