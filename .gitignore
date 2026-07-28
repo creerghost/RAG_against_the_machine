@@ -3,3 +3,5 @@ __pycache__/
 .mypy_cache
 .pytest_cache/
 .export_state
+vllm-0.10.1/
+data/
