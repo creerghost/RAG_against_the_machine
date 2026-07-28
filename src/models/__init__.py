@@ -6,6 +6,7 @@ from .minimal_search_results import MinimalSearchResults
 from .minimal_answer import MinimalAnswer
 from .student_search_results import StudentSearchResults
 from .student_search_results_and_answer import StudentSearchResultsAndAnswer
+from .chunk import Chunk
 
 __all__ = [
     "MinimalSource",
@@ -16,4 +17,5 @@ __all__ = [
     "MinimalAnswer",
     "StudentSearchResults",
     "StudentSearchResultsAndAnswer",
+    "Chunk",
 ]
