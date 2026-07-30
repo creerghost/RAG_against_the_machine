@@ -3,7 +3,7 @@ from src.chunking.python_chunker import PythonChunker
 
 
 def test_python_chunking() -> None:
-    file_name = "tests/data/test_dummy.py"
+    file_name = "tests/data_tests/test_dummy.py"
     with open(file_name, "r") as f:
         text = f.read()
 
