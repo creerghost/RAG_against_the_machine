@@ -3,7 +3,7 @@ from src import MarkdownChunker
 
 
 def test_chunking() -> None:
-    file_name = "tests/test_readme.md"
+    file_name = "tests/data/test_readme.md"
     with open(file_name, "r") as f:
         text = f.read()
     chunker = MarkdownChunker()
