@@ -10,7 +10,7 @@ class MarkdownChunker(BaseChunker):
         # Matches the start of the file OR a newline,
         # followed by hashes and a space
         matches = list(re.finditer(r"(?:^|\n)#+ ", text))
-        self.chunks = []
+        chunks: list[Chunk] = []
         for i, match in enumerate(matches):
             fst_char_idx = match.start()
             # if next header exists
@@ -27,8 +27,8 @@ class MarkdownChunker(BaseChunker):
                 file_path=file_path,
                 max_size=max_chunk_size
             )
-            self.chunks.extend(new_chunks)
-        return self.chunks
+            chunks.extend(new_chunks)
+        return chunks
 
     def _process_chunk(
         self, text: str, start: int, end: int,
@@ -86,13 +86,3 @@ class MarkdownChunker(BaseChunker):
             ))
 
         return fallback_chunks
-
-    def __repr__(self):
-        if not hasattr(self, "chunks"):
-            return "MarkdownChunker(empty)"
-        output = f"MarkdownChunker with {len(self.chunks)} chunks:\n"
-        for i, chunk in enumerate(self.chunks):
-            output += (f"  [{i}] {chunk.file_path} "
-                       f"(Chars: {chunk.first_char_idx}-"
-                       f"{chunk.last_char_idx})\n")
-        return output

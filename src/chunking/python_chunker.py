@@ -8,19 +8,19 @@ class PythonChunker(BaseChunker):
         self, text: str, file_path: str, max_chunk_size: int
     ) -> list[Chunk]:
         parsed_text = ast.parse(text)
-        self.chunks: list[Chunk] = []
+        chunks: list[Chunk] = []
         search_start = 0
 
         for node in parsed_text.body:
             search_start = self._process_node(
-                node, text, file_path, max_chunk_size, search_start
+                node, text, file_path, max_chunk_size, search_start, chunks
             )
 
-        return self.chunks
+        return chunks
 
     def _process_node(
         self, node: ast.AST, text: str, file_path: str,
-        max_size: int, search_start: int
+        max_size: int, search_start: int, chunks: list[Chunk]
     ) -> int:
         segment = ast.get_source_segment(text, node)
         if not segment:
@@ -33,7 +33,7 @@ class PythonChunker(BaseChunker):
         last_char_idx = start_idx + len(segment)
 
         if len(segment) <= max_size:
-            self.chunks.append(Chunk(
+            chunks.append(Chunk(
                 file_path=file_path,
                 content=segment,
                 first_char_idx=start_idx,
@@ -48,7 +48,12 @@ class PythonChunker(BaseChunker):
                 current_start = start_idx
                 for child_node in node.body:
                     current_start = self._process_node(
-                        child_node, text, file_path, max_size, current_start
+                        child_node,
+                        text,
+                        file_path,
+                        max_size,
+                        current_start,
+                        chunks
                     )
                 # return the end of the parent so the next sibling works
                 # correctly
@@ -56,7 +61,7 @@ class PythonChunker(BaseChunker):
             else:
                 # if it's huge but has no body (e.g. massive string/dict),
                 # just force it
-                self.chunks.append(Chunk(
+                chunks.append(Chunk(
                     file_path=file_path,
                     content=segment,
                     first_char_idx=start_idx,
