@@ -1,9 +1,9 @@
-from .app import Application
+from .app import Pipeline
+import fire
 
 
 def main() -> None:
-    app = Application()
-    app.run()
+    fire.Fire(Pipeline)
 
 
 if __name__ == "__main__":

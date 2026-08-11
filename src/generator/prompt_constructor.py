@@ -1,5 +1,5 @@
 class PromptConstructor:
-    def __init__(self, question: str):
+    def __init__(self, question: str) -> None:
         self.question = question
         self.contexts: list[str] = []
 

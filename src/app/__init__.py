@@ -1,3 +1,3 @@
-from .application import Application
+from .pipeline import Pipeline
 
-__all__ = ["Application"]
+__all__ = ["Pipeline"]

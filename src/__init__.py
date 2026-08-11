@@ -1,5 +1,4 @@
 # pyrefly: ignore [missing-import]
-from .app import Application
+from .app import Pipeline
 
-
-__all__ = ["Application"]
+__all__ = ["Pipeline"]
