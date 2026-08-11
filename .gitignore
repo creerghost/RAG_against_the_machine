@@ -5,3 +5,5 @@ __pycache__/
 .export_state
 vllm-0.10.1/
 data/
+index.pkl
+output/
