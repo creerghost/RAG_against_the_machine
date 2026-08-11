@@ -6,7 +6,12 @@ from .prompt_constructor import PromptConstructor
 
 class QwenGenerator(BaseGenerator):
     def __init__(self) -> None:
-        self.llm = LLM(model="Qwen/Qwen3-0.6B")
+        self.llm = LLM(
+            model="Qwen/Qwen3-0.6B",
+            max_model_len=4096,
+            gpu_memory_utilization=0.5,
+            enforce_eager=True
+        )
         self.params = SamplingParams(temperature=0.2, max_tokens=256)
 
     def generate(self, question: str, sources: list[MinimalSource]) -> str:

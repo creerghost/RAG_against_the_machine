@@ -1,11 +1,24 @@
 from ..indexing import BM25Indexer, BM25Retriever
 from ..generator import QwenGenerator
-from ..models import (RagDataset, MinimalSearchResults, StudentSearchResults)
+from ..models import (RagDataset, MinimalSearchResults, StudentSearchResults,
+                      MinimalAnswer, StudentSearchResultsAndAnswer)
 from .catch import catch
 from pathlib import Path
+from pydantic import BaseModel
 
 
 class Pipeline:
+    def _save_json(
+        self, data: BaseModel, original_path: str,
+        save_dir: str, count: int, item_name: str
+    ) -> None:
+        save_dir_path = Path(save_dir)
+        save_dir_path.mkdir(parents=True, exist_ok=True)
+        output_file = save_dir_path / Path(original_path).name
+        with open(output_file, "w") as f:
+            f.write(data.model_dump_json(indent=2))
+        print(f"Successfully saved {count} {item_name} to {output_file}!")
+
     @catch
     def index(
         self, corpus_path: str, max_chunk_size: int = 2000
@@ -26,15 +39,18 @@ class Pipeline:
             print(f"- Found in {r.file_path}")
 
     @catch
-    def search_dataset(self, dataset_path: str, k: int, save_dir: str) -> None:
+    def search_dataset(
+        self, dataset_path: str, k: int, save_directory: str
+    ) -> None:
         print(f"Reading {dataset_path}...")
         with open(dataset_path, "r") as f:
             json_string = f.read()
-        print(f"Validating the questions...")
+        print("Validating the questions...")
         dataset = RagDataset.model_validate_json(json_string)
         retriever = BM25Retriever()
         retriever.load("index.pkl")
         all_search_results: list[MinimalSearchResults] = []
+        print("Searching...")
         for q in dataset.rag_questions:
             sources = retriever.search(q.question, k)
             all_search_results.append(MinimalSearchResults(
@@ -42,17 +58,61 @@ class Pipeline:
                 question=q.question,
                 retrieved_sources=sources
             ))
-
+        print("Searching is done!")
         student_results = StudentSearchResults(
             search_results=all_search_results,
             k=k
         )
-        save_dir_path = Path(save_dir)
-        save_dir_path.mkdir(parents=True, exist_ok=True)
+        print(f"Saving to {dataset_path}...")
+        self._save_json(
+            student_results,
+            dataset_path,
+            save_directory,
+            len(all_search_results),
+            "results"
+        )
 
-        output_file = save_dir_path / Path(dataset_path).name
-        with open(output_file, "w") as f:
-            f.write(student_results.model_dump_json(indent=2))
+    @catch
+    def answer(self, question: str, k: int = 10) -> None:
+        print(f"Question: {question}")
+        print("Searching top-k source locations for a query...")
+        retriever = BM25Retriever()
+        retriever.load("index.pkl")
+        sources = retriever.search(question, k)
+        print(QwenGenerator().generate(question, sources))
 
-        print(f"Successfully saved {len(all_search_results)} results "
-              f"to {output_file}!")
+    @catch
+    def answer_dataset(
+        self, student_search_results_path: str, save_directory: str
+    ) -> None:
+        print(f"Reading {student_search_results_path}...")
+        with open(student_search_results_path, "r") as f:
+            json_string = f.read()
+        print("Validating the student search results...")
+        student_results = StudentSearchResults.model_validate_json(json_string)
+        generator = QwenGenerator()
+        all_answers = []
+        print("Generating the answers...")
+        for result in student_results.search_results:
+            answer = generator.generate(
+                result.question,
+                result.retrieved_sources
+            )
+            minimal_answer = MinimalAnswer(
+                **result.model_dump(),
+                answer=answer
+            )
+            all_answers.append(minimal_answer)
+        student_results_and_answer = StudentSearchResultsAndAnswer(
+            search_results=all_answers,
+            k=student_results.k
+        )
+        print(f"Done! Saving to {save_directory}...")
+
+        self._save_json(
+            student_results_and_answer,
+            student_search_results_path,
+            save_directory,
+            len(all_answers),
+            "answers"
+        )
