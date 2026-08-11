@@ -26,6 +26,12 @@ class BM25Indexer(BaseIndexer):
                 )
 
         tokenized_corpus = [chunk.content.split() for chunk in self.chunks]
+
+        if not tokenized_corpus:
+            raise ValueError(f"No chunks found in {corpus_path}. "
+                             f"Does the directory exist and contain "
+                             f".py/.md files?")
+
         self.bm25 = BM25Okapi(tokenized_corpus)
 
     def save(self, output_path: str) -> None:
