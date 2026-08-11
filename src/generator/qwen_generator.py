@@ -1,18 +1,21 @@
 from ..interfaces import BaseGenerator
-from vllm import LLM, SamplingParams
+from transformers import pipeline
 from ..models import MinimalSource
 from .prompt_constructor import PromptConstructor
-
+import torch
 
 class QwenGenerator(BaseGenerator):
     def __init__(self) -> None:
-        self.llm = LLM(
+        print("Loading Qwen with Transformers (safe mode)...")
+        device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        self.pipe = pipeline(
+            "text-generation",
             model="Qwen/Qwen3-0.6B",
-            max_model_len=4096,
-            gpu_memory_utilization=0.5,
-            enforce_eager=True
+            device=device,
+            max_new_tokens=256,
+            temperature=0.2,
+            do_sample=True,
         )
-        self.params = SamplingParams(temperature=0.2, max_tokens=256)
 
     def generate(self, question: str, sources: list[MinimalSource]) -> str:
         prompt_builder = PromptConstructor(question)
@@ -24,7 +27,6 @@ class QwenGenerator(BaseGenerator):
 
         final_prompt = prompt_builder.build()
 
-        outputs = self.llm.generate([final_prompt], self.params)
-        # vllm returns a list of RequestOutputs.
-        # We extract the generated text from the first one.
-        return outputs[0].outputs[0].text
+        # Generate the answer and return only the newly generated text (not the prompt)
+        outputs = self.pipe(final_prompt, return_full_text=False)
+        return outputs[0]["generated_text"].strip()
