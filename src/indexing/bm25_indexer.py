@@ -19,8 +19,10 @@ class BM25Indexer(BaseIndexer):
                 continue
             chunker = ChunkerFactory.route(str(file))
             if chunker:
+                with open(file, "r", encoding="utf-8") as f:
+                    text = f.read()
                 self.chunks.extend(
-                    chunker.chunk(str(file), max_chunk_size)
+                    chunker.chunk(text, str(file), max_chunk_size)
                 )
 
         tokenized_corpus = [chunk.content.split() for chunk in self.chunks]

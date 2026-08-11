@@ -1,5 +1,6 @@
 # pyrefly: ignore [missing-import]
 from src.chunking.python_chunker import PythonChunker
+# pyrefly: ignore [missing-import]
 from src.models import Chunk
 import pytest
 

@@ -1,5 +1,6 @@
 # pyrefly: ignore [missing-import]
 from src.chunking.markdown_chunker import MarkdownChunker
+# pyrefly: ignore [missing-import]
 from src.models import Chunk
 import pytest
 
