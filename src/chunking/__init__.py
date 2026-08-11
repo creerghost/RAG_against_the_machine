@@ -1,4 +1,3 @@
-from .markdown_chunker import MarkdownChunker
-from .python_chunker import PythonChunker
+from .factory import ChunkerFactory
 
-__all__ = ["MarkdownChunker", "PythonChunker"]
+__all__ = ["ChunkerFactory"]
