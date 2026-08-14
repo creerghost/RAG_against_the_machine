@@ -79,7 +79,10 @@ class Pipeline:
         print(f"Question: {question}")
         print("Searching top-k source locations for a query...")
         retriever = BM25Retriever()
-        retriever.load("index.pkl")
+        try:
+            retriever.load("index.pkl")
+        except FileNotFoundError as e:
+            raise FileNotFoundError(f"{e}. Try to do search first.")
         sources = retriever.search(question, k)
         print(QwenGenerator().generate(question, sources))
 

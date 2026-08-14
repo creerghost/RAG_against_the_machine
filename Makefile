@@ -46,7 +46,6 @@ run-answer-single: install
 	@printf "$(MAGENTA)Generating an answer for a single query...$(RESET)\n"
 	$(PYTHON) -m src answer --question $(Q) --k $(K)
 
-
 debug:
 	@printf "$(YELLOW)Starting debugger...$(RESET)\n"
 	$(PYTHON) -m pdb src/__main__.py
