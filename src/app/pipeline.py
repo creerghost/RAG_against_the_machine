@@ -5,9 +5,11 @@ from ..models import (RagDataset, MinimalSearchResults, StudentSearchResults,
 from .catch import catch
 from pathlib import Path
 from pydantic import BaseModel
+from tqdm import tqdm
 
 
 class Pipeline:
+    @catch
     def _save_json(
         self, data: BaseModel, original_path: str,
         save_dir: str, count: int, item_name: str
@@ -93,7 +95,7 @@ class Pipeline:
         generator = QwenGenerator()
         all_answers = []
         print("Generating the answers...")
-        for result in student_results.search_results:
+        for result in tqdm(student_results.search_results, desc="Answering"):
             answer = generator.generate(
                 result.question,
                 result.retrieved_sources

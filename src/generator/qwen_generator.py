@@ -1,8 +1,9 @@
 from ..interfaces import BaseGenerator
-from transformers import pipeline
+from transformers import pipeline, GenerationConfig
 from ..models import MinimalSource
 from .prompt_constructor import PromptConstructor
 import torch
+
 
 class QwenGenerator(BaseGenerator):
     def __init__(self) -> None:
@@ -12,9 +13,6 @@ class QwenGenerator(BaseGenerator):
             "text-generation",
             model="Qwen/Qwen3-0.6B",
             device=device,
-            max_new_tokens=256,
-            temperature=0.2,
-            do_sample=True,
         )
 
     def generate(self, question: str, sources: list[MinimalSource]) -> str:
@@ -27,6 +25,21 @@ class QwenGenerator(BaseGenerator):
 
         final_prompt = prompt_builder.build()
 
-        # Generate the answer and return only the newly generated text (not the prompt)
-        outputs = self.pipe(final_prompt, return_full_text=False)
-        return outputs[0]["generated_text"].strip()
+        outputs = self.pipe(
+            final_prompt,
+            return_full_text=False,
+            generation_config=GenerationConfig(
+                max_new_tokens=256,
+                temperature=0.2,
+                do_sample=True,
+                repetition_penalty=1.15,
+            ),
+            clean_up_tokenization_spaces=False,
+        )
+        answer = outputs[0]["generated_text"].strip()
+        
+        # Remove reasoning block if the model outputs </think>
+        if "</think>" in answer:
+            answer = answer.split("</think>")[-1].strip()
+            
+        return answer

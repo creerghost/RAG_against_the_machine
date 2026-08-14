@@ -13,7 +13,8 @@ endif
 UV = uv
 PYTHON = $(UV) run python
 
-ARGS ?=
+Q ?= "What are the enforcement guidelines in code of conduct?"
+K ?= 5
 
 RESET = \033[0m
 BOLD = \033[1m
@@ -24,15 +25,27 @@ BLUE = \033[1;34m
 MAGENTA = \033[1;35m
 CYAN = \033[1;36m
 
+CORPUS_PATH = vllm-0.10.1
+CHUNK_SIZE = 2000
+
 all: install
 
 install:
 	@printf "$(CYAN)Syncing dependencies with uv...$(RESET)\n"
 	$(UV) sync
 
-run: install
-	@printf "$(MAGENTA)Running main pipeline...$(RESET)\n"
-	$(PYTHON) -m src $(ARGS)
+run-index: install
+	@printf "$(MAGENTA)Running indexing...$(RESET)\n"
+	$(PYTHON) -m src index --corpus_path $(CORPUS_PATH) --max_chunk_size $(CHUNK_SIZE)
+
+run-search-single: install
+	@printf "$(MAGENTA)Running search of a single query...$(RESET)\n"
+	$(PYTHON) -m src search --question $(Q) --k $(K)
+
+run-answer-single: install
+	@printf "$(MAGENTA)Generating an answer for a single query...$(RESET)\n"
+	$(PYTHON) -m src answer --question $(Q) --k $(K)
+
 
 debug:
 	@printf "$(YELLOW)Starting debugger...$(RESET)\n"
