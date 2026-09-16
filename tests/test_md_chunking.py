@@ -26,7 +26,9 @@ def test_chunk_indices_mapping(
 ) -> None:
     text, chunks = chunked_readme
     for chunk in chunks:
-        assert text[chunk.first_char_idx:chunk.last_char_idx] == chunk.content
+        assert text[
+            chunk.first_character_index:chunk.last_character_index
+        ] == chunk.content
 
 
 def test_chunk_expected_count(chunked_readme: tuple[str, list[Chunk]]) -> None:

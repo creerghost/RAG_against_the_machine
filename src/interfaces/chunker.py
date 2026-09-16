@@ -3,6 +3,8 @@ from ..models import Chunk
 
 
 class BaseChunker(ABC):
+    """Interface implemented by source-specific chunking strategies."""
+
     @abstractmethod
     def chunk(
         self, text: str, file_path: str, max_chunk_size: int
@@ -10,6 +12,6 @@ class BaseChunker(ABC):
         """
         Takes raw text and splits it into chunks.
         Must return objects containing the chunk text, file_path,
-        first_char_idx, and last_char_idx.
+        first_character_index, and last_character_index.
         """
         pass

@@ -25,7 +25,9 @@ def test_chunk_size_limit(chunked_dummy: tuple[str, list[Chunk]]) -> None:
 def test_chunk_indices_mapping(chunked_dummy: tuple[str, list[Chunk]]) -> None:
     text, chunks = chunked_dummy
     for chunk in chunks:
-        assert text[chunk.first_char_idx:chunk.last_char_idx] == chunk.content
+        assert text[
+            chunk.first_character_index:chunk.last_character_index
+        ] == chunk.content
 
 
 def test_chunk_expected_count(chunked_dummy: tuple[str, list[Chunk]]) -> None:

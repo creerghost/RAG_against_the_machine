@@ -5,4 +5,6 @@ from .unanswered_question import UnansweredQuestion
 
 
 class RagDataset(BaseModel):
+    """Validate a collection containing answered or unanswered RAG questions."""
+
     rag_questions: List[AnsweredQuestion | UnansweredQuestion]
