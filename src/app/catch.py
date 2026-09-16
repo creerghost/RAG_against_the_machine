@@ -1,61 +1,48 @@
 from functools import wraps
-from typing import Any, Callable
-import traceback
-import sys
 import json
 import pickle
+import sys
+from typing import Any, Callable
 
 
 def catch(fn: Callable[..., Any]) -> Callable[..., Any]:
-    """Wrap a callable with universal error handling.
-
-    Args:
-        fn: Function or method to wrap.
-
-    Returns:
-        Wrapped callable that prints a friendly error message and exits.
-    """
+    """Convert expected command failures into concise CLI errors."""
 
     @wraps(fn)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
-        """
-        Executes the wrapped loader function and catches generic exceptions.
-        """
+        """Execute a command and report expected failures without tracebacks."""
         try:
             return fn(*args, **kwargs)
-        except FileNotFoundError as e:
-            print(f"Error: File missing: {e}")
-            sys.exit(1)
-        except json.JSONDecodeError as e:
-            print(f"Error: Invalid JSON dataset format: {e}")
-            sys.exit(1)
-        except pickle.UnpicklingError as e:
-            print(f"Error: Corrupted index file. Please re-run the 'index' "
-                  f"command. ({e})")
-            sys.exit(1)
-        except KeyError as e:
-            print(f"Error: Missing expected key in data: {e}")
-            sys.exit(1)
-        except RuntimeError as e:
-            if "CUDA out of memory" in str(e) or "OOM" in str(e):
-                print(f"GPU Memory Error: {e}\nTry limiting max_model_len or "
-                      f"chunk size!")
-            else:
-                print(f"Runtime Error: {e}")
-            sys.exit(1)
-        except ImportError as e:
-            print(f"Import error: {e}")
-            sys.exit(1)
-        except (ValueError, TypeError) as e:
-            print(f"Error: {e}")
-            traceback.print_exc()
-            sys.exit(1)
+        except FileNotFoundError as error:
+            _fail(f"File missing: {error}")
+        except json.JSONDecodeError as error:
+            _fail(f"Invalid JSON dataset format: {error}")
+        except pickle.UnpicklingError as error:
+            _fail(f"Corrupted index file; re-run index: {error}")
+        except KeyError as error:
+            _fail(f"Missing expected key in data: {error}")
+        except RuntimeError as error:
+            if "CUDA out of memory" in str(error) or "OOM" in str(error):
+                _fail(
+                    f"GPU memory error: {error}. "
+                    "Try reducing the model or chunk size."
+                )
+            _fail(f"Runtime error: {error}")
+        except ImportError as error:
+            _fail(f"Import error: {error}")
+        except (ValueError, TypeError, UnicodeError) as error:
+            _fail(str(error))
         except KeyboardInterrupt:
-            print("\nKeyboard interrupt. Bye!")
-            sys.exit(0)
-        except Exception as e:
-            print(f"Unexpected error: {e}")
-            traceback.print_exc()
-            sys.exit(1)
+            print("Keyboard interrupt. Bye!", file=sys.stderr)
+            raise SystemExit(130)
+        except Exception as error:
+            _fail(f"Unexpected error: {error}")
+        raise AssertionError("unreachable")
 
     return wrapper
+
+
+def _fail(message: str) -> None:
+    """Print one user-facing error and terminate the current CLI command."""
+    print(f"Error: {message}", file=sys.stderr)
+    raise SystemExit(1)

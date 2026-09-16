@@ -3,7 +3,8 @@ import fire
 
 
 def main() -> None:
-    fire.Fire(Pipeline)
+    """Start the Python Fire command-line interface."""
+    fire.Fire(Pipeline())
 
 
 if __name__ == "__main__":
