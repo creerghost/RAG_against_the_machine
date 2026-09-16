@@ -2,6 +2,8 @@ from abc import ABC, abstractmethod
 
 
 class BaseIndexer(ABC):
+    """Interface for components that build and persist searchable indexes."""
+
     @abstractmethod
     def index(self, corpus_path: str, max_chunk_size: int) -> None:
         """Walk corpus_path, chunk files, build and persist index."""

@@ -1,9 +1,5 @@
-# The size of HDD space in 42 clusters is very limited.
-# Write 'make exports' to save caches on ~/sgoinfre folder
-#	(if you are running this project on 42 prague devices).
+# Use `make exports` to store model caches on sgoinfre at 42 clusters.
 LOGIN = vlnikola
-
-# Read export state (defaults to 1 if file doesn't exist)
 EXPORT_STATE := $(shell cat .export_state 2>/dev/null || echo "1")
 ifeq ($(EXPORT_STATE),1)
 export HF_HOME = /sgoinfre/$(LOGIN)/.cache/huggingface
@@ -13,78 +9,61 @@ endif
 UV = uv
 PYTHON = $(UV) run python
 
-Q ?= "What are the enforcement guidelines in code of conduct?"
+Q ?= What are the enforcement guidelines in code of conduct?
 K ?= 5
-
-RESET = \033[0m
-BOLD = \033[1m
-RED = \033[1;31m
-GREEN = \033[1;32m
-YELLOW = \033[1;33m
-BLUE = \033[1;34m
-MAGENTA = \033[1;35m
-CYAN = \033[1;36m
-
-CORPUS_PATH = vllm-0.10.1
-CHUNK_SIZE = 2000
+CORPUS_PATH ?= data/raw
+CHUNK_SIZE ?= 2000
+INDEX_PATH ?= data/processed/index.pkl
 
 all: install
 
 install:
-	@printf "$(CYAN)Syncing dependencies with uv...$(RESET)\n"
 	$(UV) sync
 
+run:
+	$(PYTHON) -m src --help
+
 run-index: install
-	@printf "$(MAGENTA)Running indexing...$(RESET)\n"
-	$(PYTHON) -m src index --corpus_path $(CORPUS_PATH) --max_chunk_size $(CHUNK_SIZE)
+	$(PYTHON) -m src index \
+		--corpus_path $(CORPUS_PATH) \
+		--max_chunk_size $(CHUNK_SIZE) \
+		--index_path $(INDEX_PATH)
 
 run-search-single: install
-	@printf "$(MAGENTA)Running search of a single query...$(RESET)\n"
-	$(PYTHON) -m src search --question $(Q) --k $(K)
+	$(PYTHON) -m src search \
+		--question "$(Q)" \
+		--k $(K) \
+		--index_path $(INDEX_PATH)
 
 run-answer-single: install
-	@printf "$(MAGENTA)Generating an answer for a single query...$(RESET)\n"
-	$(PYTHON) -m src answer --question $(Q) --k $(K)
+	$(PYTHON) -m src answer \
+		--question "$(Q)" \
+		--k $(K) \
+		--index_path $(INDEX_PATH)
 
 debug:
-	@printf "$(YELLOW)Starting debugger...$(RESET)\n"
 	$(PYTHON) -m pdb src/__main__.py
 
 clean:
-	@printf "$(RED)Cleaning all caches and environments...$(RESET)\n"
-	rm -rf __pycache__
-	rm -rf .mypy_cache
-	rm -rf .pytest_cache
-	find . -type d -name "__pycache__" -exec rm -rf {} +
+	find . -type d -name "__pycache__" -prune -exec rm -rf {} +
 	find . -type f -name "*.pyc" -delete
-	rm -rf .venv
-
-
-clean-cache:
-	@printf "$(RED)Cleaning caches...$(RESET)\n"
-	rm -rf __pycache__
-	rm -rf .mypy_cache
-	rm -rf .pytest_cache
-	find . -type d -name "__pycache__" -exec rm -rf {} +
-	find . -type f -name "*.pyc" -delete
+	rm -rf .mypy_cache .pytest_cache
 
 lint:
-	@printf "$(CYAN)Running standard linting...$(RESET)\n"
-	$(UV) run flake8 src/ tests/
-	$(UV) run mypy src/ tests/ --warn-return-any --warn-unused-ignores --ignore-missing-imports --disallow-untyped-defs --check-untyped-defs
+	$(UV) run flake8 .
+	$(UV) run mypy . --warn-return-any --warn-unused-ignores \
+		--ignore-missing-imports --disallow-untyped-defs --check-untyped-defs
 
 lint-strict:
-	@printf "$(CYAN)Running strict linting...$(RESET)\n"
-	$(UV) run flake8 src/ tests/
-	$(UV) run mypy src/ tests/ --strict
+	$(UV) run flake8 .
+	$(UV) run mypy . --strict
 
 exports:
 	@if [ "$(EXPORT_STATE)" = "1" ]; then \
 		echo "0" > .export_state; \
-		printf "$(RED)Exports toggled OFF (will not use /sgoinfre caches)$(RESET)\n"; \
 	else \
 		echo "1" > .export_state; \
-		printf "$(GREEN)Exports toggled ON (will use /sgoinfre caches)$(RESET)\n"; \
 	fi
 
-.PHONY: all install run debug clean clean-cache lint lint-strict exports
+.PHONY: all install run run-index run-search-single run-answer-single debug \
+	clean lint lint-strict exports

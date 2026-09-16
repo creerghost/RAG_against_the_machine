@@ -2,6 +2,9 @@ __pycache__/
 .venv/
 .mypy_cache
 .pytest_cache/
+build/
+dist/
+*.egg-info/
 .export_state
 vllm-0.10.1/
 data/

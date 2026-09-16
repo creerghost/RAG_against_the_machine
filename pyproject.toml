@@ -24,5 +24,8 @@ dev = [
     "pytest>=7.0.0",
 ]
 
-[tool.uv.sources]
-llm-sdk = { path = "./vllm_0.10.1", editable = true }
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.mypy]
+exclude = '(^|/)(vllm-0.10.1|build|dist|\.venv|.*\.egg-info)(/|$)'

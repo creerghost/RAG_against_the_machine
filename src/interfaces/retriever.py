@@ -3,6 +3,8 @@ from abc import ABC, abstractmethod
 
 
 class BaseRetriever(ABC):
+    """Interface for components that load indexes and retrieve sources."""
+
     @abstractmethod
     def load(self, index_path: str) -> None:
         """Load a persisted index from disk."""
