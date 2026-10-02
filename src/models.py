@@ -5,14 +5,13 @@ The first block mirrors the subject verbatim (see docs/subject.md, VI.4);
 """
 
 import uuid
-from typing import List, Optional
+from typing import Optional
 
 from pydantic import BaseModel, Field, model_validator
 
 
 class MinimalSource(BaseModel):
     """A character span inside one corpus file."""
-
     file_path: str
     first_character_index: int
     last_character_index: int
@@ -20,60 +19,50 @@ class MinimalSource(BaseModel):
 
 class UnansweredQuestion(BaseModel):
     """A question without ground truth."""
-
     question_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     question: str
 
 
 class AnsweredQuestion(UnansweredQuestion):
     """A question with its reference sources and answer."""
-
-    sources: List[MinimalSource]
+    sources: list[MinimalSource]
     answer: str
 
 
 class RagDataset(BaseModel):
     """A dataset of questions, answered or not."""
-
-    rag_questions: List[AnsweredQuestion | UnansweredQuestion]
+    rag_questions: list[AnsweredQuestion | UnansweredQuestion]
 
 
 class MinimalSearchResults(BaseModel):
     """Retrieved sources for one question."""
-
     question_id: str
     question: str
-    retrieved_sources: List[MinimalSource]
+    retrieved_sources: list[MinimalSource]
 
 
 class MinimalAnswer(MinimalSearchResults):
     """Retrieved sources plus a generated answer for one question."""
-
     answer: str
 
 
 class StudentSearchResults(BaseModel):
     """Output of ``search_dataset``."""
-
-    search_results: List[MinimalSearchResults]
+    search_results: list[MinimalSearchResults]
     k: int
 
 
 class StudentSearchResultsAndAnswer(BaseModel):
     """Output of ``answer_dataset``."""
-
-    search_results: List[MinimalAnswer]
+    search_results: list[MinimalAnswer]
     k: int
 
 
 class Chunk(BaseModel):
-    """One indexed span of a corpus file.
+    """One indexed span of a corpus file; its text is re-read when needed.
 
-    Only offsets are stored; the text is re-read from ``file_path`` when
-    needed. ``kind`` is the chunker that produced it (e.g. ``"python"`` or
-    ``"text"``) and ``title`` an optional symbol name or heading path.
+    ``kind`` names the chunker that made it, ``title`` a heading or symbol.
     """
-
     file_path: str
     first_character_index: int = Field(ge=0)
     last_character_index: int = Field(ge=0)
@@ -88,13 +77,7 @@ class Chunk(BaseModel):
         return self
 
     def to_source(self) -> MinimalSource:
-        """Convert to the ``MinimalSource`` returned to the grader.
-
-        Returns:
-            MinimalSource: Same file path and character span.
-        """
-        return MinimalSource(
-            file_path=self.file_path,
-            first_character_index=self.first_character_index,
-            last_character_index=self.last_character_index,
-        )
+        """Return the same span as the ``MinimalSource`` sent to the grader."""
+        return MinimalSource(file_path=self.file_path,
+                             first_character_index=self.first_character_index,
+                             last_character_index=self.last_character_index)

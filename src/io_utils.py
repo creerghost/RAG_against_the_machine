@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from typing import Type, TypeVar
+from typing import TypeVar
 
 from pydantic import BaseModel, ValidationError
 
@@ -13,18 +13,10 @@ class CliError(Exception):
     """An expected, user-facing error: printed without a traceback."""
 
 
-def load_model(path: Path, model_cls: Type[M]) -> M:
-    """Read ``path`` and validate it as ``model_cls``.
+def load_model(path: Path, model_cls: type[M]) -> M:
+    """Return the JSON file ``path`` validated as ``model_cls``.
 
-    Args:
-        path: JSON file to read.
-        model_cls: Pydantic model describing the file.
-
-    Returns:
-        M: The validated model.
-
-    Raises:
-        CliError: If the file is missing, unreadable, not JSON, or invalid.
+    Raises ``CliError`` if it is missing, unreadable, not JSON or invalid.
     """
     if not path.is_file():
         raise CliError(f"File not found: {path}")
@@ -35,22 +27,16 @@ def load_model(path: Path, model_cls: Type[M]) -> M:
     except json.JSONDecodeError as e:
         raise CliError(f"Malformed JSON in {path}: {e}") from e
     except ValidationError as e:
-        raise CliError(
-            f"{path} is not a valid {model_cls.__name__}:\n{e}"
-        ) from e
+        name = model_cls.__name__
+        raise CliError(f"{path} is not a valid {name}:\n{e}") from e
     except (OSError, UnicodeDecodeError) as e:
         raise CliError(f"Cannot read {path}: {e}") from e
 
 
 def save_model(model: BaseModel, path: Path) -> None:
-    """Write ``model`` as indented JSON, creating parent directories.
+    """Write ``model`` to ``path`` as indented JSON, creating parent dirs.
 
-    Args:
-        model: Model to serialise.
-        path: Destination file.
-
-    Raises:
-        CliError: If the file cannot be written.
+    Raises ``CliError`` if the file cannot be written.
     """
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
