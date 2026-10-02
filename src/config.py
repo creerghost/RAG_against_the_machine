@@ -29,3 +29,13 @@ class RagConfig(BaseModel):
     # skipped. Used in: chunking/__init__.py, loader.py (via index).
     chunker_by_extension: dict[str, str] = {
         ".md": "markdown", ".txt": "text", ".py": "text"}
+    # Tokens shorter than this are dropped (index and query). Used in:
+    # tokenizer.py (via index.py, retriever.py).
+    min_token_length: int = Field(default=2, ge=1)
+    # Words never indexed or searched (lowercase). Used in: tokenizer.py
+    # (via index.py, retriever.py).
+    stopwords: frozenset[str] = frozenset({
+        "a", "an", "and", "are", "as", "at", "be", "by", "can", "do", "does",
+        "for", "from", "how", "if", "in", "is", "it", "its", "of", "on", "or",
+        "that", "the", "this", "to", "was", "what", "when", "where", "which",
+        "who", "why", "with"})
