@@ -27,11 +27,22 @@ class LoaderDraft:
 
     def read(self, path: str) -> str | None:
         """Return the text of ``path``, or None if it cannot be read."""
-        return None
+        try:
+            with open(path, encoding="utf-8") as f:
+                text = f.read()
+        except (OSError, UnicodeDecodeError):
+            return None
+        return text
 
     def load(self) -> list[tuple[str, str]]:
         """Return ``(path, text)`` for every useful file."""
-        return []
+        result = []
+        for path in self.paths():
+            text = self.read(path)
+            if not text or not text.strip():
+                continue
+            result.append((path, text))
+        return result
 
 
 def check(name: str, ok: bool, detail: object = "") -> None:
@@ -57,3 +68,16 @@ if __name__ == "__main__":
     check("lora.md included", lora in paths)
     check("root files included",
           "data/raw/vllm-0.10.1/CMakeLists.txt" in paths)
+
+    print("== step 3 ==")
+    text = loader.read(lora)
+    check("lora.md is 15148 chars", text is not None and len(text) == 15148,
+          f"(got {None if text is None else len(text)})")
+    check("missing file -> None", loader.read("nope/missing.md") is None)
+
+    print("== step 4 ==")
+    pairs = loader.load()
+    check("loads files", len(pairs) > 1500, f"(got {len(pairs)})")
+    check("no blank texts", all(t.strip() for _, t in pairs))
+    check("same order as paths()",
+          [p for p, _ in pairs] == [p for p in paths if p in dict(pairs)])

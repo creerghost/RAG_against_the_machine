@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 class RagConfig(BaseModel):
     """Project settings; CLI flags override the defaults."""
-    # Corpus root to index. Used in: cli.py, index.py.
+    # Corpus root to index. Used in: cli.py, index.py, loader.py (via index).
     raw_dir: str = "data/raw"
     # Where the index is written and read. Used in: cli.py, index.py,
     # retriever.py.
@@ -26,6 +26,6 @@ class RagConfig(BaseModel):
     # chunking/base.py, chunking/__init__.py.
     separators: tuple[str, ...] = ("\n\n", "\n")
     # Indexed extensions and the Chunker.kind for each; other files are
-    # skipped. Used in: chunking/__init__.py.
+    # skipped. Used in: chunking/__init__.py, loader.py (via index).
     chunker_by_extension: dict[str, str] = {
         ".md": "markdown", ".txt": "text", ".py": "text"}
