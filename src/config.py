@@ -28,7 +28,7 @@ class RagConfig(BaseModel):
     # Indexed extensions and the Chunker.kind for each; other files are
     # skipped. Used in: chunking/__init__.py, loader.py (via index).
     chunker_by_extension: dict[str, str] = {
-        ".md": "markdown", ".txt": "text", ".py": "text"}
+        ".md": "markdown", ".txt": "text", ".py": "python"}
     # Tokens shorter than this are dropped (index and query). Used in:
     # tokenizer.py (via index.py, retriever.py).
     min_token_length: int = Field(default=2, ge=1)

@@ -5,7 +5,8 @@ from typing import Optional
 
 import pytest
 
-from src.chunking import MarkdownChunker, TextChunker, chunker_for
+from src.chunking import (MarkdownChunker, PythonChunker, TextChunker,
+                          chunker_for)
 from src.config import RagConfig
 from src.models import Chunk
 
@@ -101,7 +102,8 @@ def test_chunker_for() -> None:
     """Extension picks the strategy; unknown extensions are skipped."""
     config = RagConfig()
     assert isinstance(chunker_for("a/b.md", config), MarkdownChunker)
-    assert isinstance(chunker_for("a/b.PY", config), TextChunker)
+    assert isinstance(chunker_for("a/b.PY", config), PythonChunker)
+    assert isinstance(chunker_for("a/b.txt", config), TextChunker)
     assert chunker_for("a/b.png", config) is None
 
 

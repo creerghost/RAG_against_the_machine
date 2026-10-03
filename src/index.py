@@ -31,7 +31,7 @@ def build_index(config: RagConfig) -> int:
                 text[chunk.first_character_index:chunk.last_character_index])
             tokens += tokenizer.tokenize(chunk.title or "")
             rel_path = chunk.file_path.removeprefix(config.raw_dir)
-            tokens += tokenizer.tokenize(chunk.file_path)
+            tokens += tokenizer.tokenize(rel_path)
             chunks.append(chunk)
             docs.append(tokens)
     bm25 = BM25Index.build(docs, config.bm25_k1, config.bm25_b)
