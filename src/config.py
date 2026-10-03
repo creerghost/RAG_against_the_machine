@@ -45,3 +45,6 @@ class RagConfig(BaseModel):
     # BM25 length normalization, 0 (none) to 1 (full). Used in: bm25.py
     # (via index.py).
     bm25_b: float = Field(default=0.75, ge=0, le=1)
+    # Minimum IoU for a retrieved span to count as finding a reference
+    # (moulinette rule). Used in: evaluate.py (via cli.py).
+    min_iou: float = Field(default=0.05, ge=0, le=1)

@@ -160,7 +160,8 @@ class RagCli:
         results = load_model(results_path, StudentSearchResults)
         dataset = load_model(_as_path(dataset_path, "dataset_path"),
                              RagDataset)
-        recalls = recall_at_k(results, dataset, self.config.eval_ks)
+        recalls = recall_at_k(results, dataset, self.config.eval_ks,
+                              self.config.min_iou)
         print(" ".join(f"Recall@{k}: {r:.3f}" for k, r in recalls.items()))
 
 
