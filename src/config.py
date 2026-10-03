@@ -48,3 +48,25 @@ class RagConfig(BaseModel):
     # Minimum IoU for a retrieved span to count as finding a reference
     # (moulinette rule). Used in: evaluate.py (via cli.py).
     min_iou: float = Field(default=0.05, ge=0, le=1)
+    # Token budget for the numbered sources in a prompt; lower is faster
+    # (~8 new tok/s on CPU). Used in: generator.py.
+    max_context_tokens: int = Field(default=1500, ge=1)
+    # Upper bound on answer length in tokens. Used in: generator.py.
+    max_new_tokens: int = Field(default=200, ge=1)
+    # Reply when there is nothing to answer from. Used in: generator.py.
+    no_answer: str = "The provided sources do not contain the answer."
+    # System message: grounding rules for the answer model. Used in:
+    # generator.py.
+    system_prompt: str = (
+        "You answer questions about the vLLM codebase using only the "
+        "numbered sources provided by the user.\n"
+        "Rules:\n"
+        "- Use only facts stated in the sources. Do not use outside "
+        "knowledge and do not guess.\n"
+        "- If the sources do not contain the answer, reply exactly: "
+        "\"The provided sources do not contain the answer.\"\n"
+        "- Answer the question directly in 1 to 4 sentences.\n"
+        "- Copy names exactly as written in the sources: functions, "
+        "classes, parameters, flags, endpoints, environment variables "
+        "and default values.\n"
+        "- Mention the number of the source you used, like [1].")

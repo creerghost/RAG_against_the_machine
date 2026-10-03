@@ -123,7 +123,10 @@ class RagCli:
 
         text, k = _as_text(query, "query"), self._k(k)
         sources = self._retriever().search(text, k)
-        print(Generator(self.config.model_name).answer(text, sources))
+        if sources:
+            print(Generator(self.config).answer(text, sources))
+        else:  # nothing to ground on: skip loading the model
+            print(self.config.no_answer)
         print("\nSources:")
         _print_sources(sources)
 
@@ -138,7 +141,7 @@ class RagCli:
         searched = load_model(src, StudentSearchResults)
         total = len(searched.search_results)
         print(f"Loaded {total} questions from {src}")
-        generator = Generator(self.config.model_name)
+        generator = Generator(self.config)
         answers: list[MinimalAnswer] = []
         for r in tqdm(searched.search_results, desc="Answering", unit="q"):
             answer = generator.answer(r.question, r.retrieved_sources)
