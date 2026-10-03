@@ -69,9 +69,9 @@ class RagCli:
 
     def _retriever(self) -> Retriever:
         """Load the index, turning a missing index into a ``CliError``."""
-        processed = _as_path(self.config.processed_dir, "processed_dir")
+        processed = self.config.processed_dir
         try:
-            return Retriever(processed)
+            return Retriever(self.config)
         except FileNotFoundError as e:
             raise CliError(f"No index in {processed} ({e}). "
                            "Run the 'index' command first.") from e

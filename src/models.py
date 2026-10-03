@@ -81,3 +81,8 @@ class Chunk(BaseModel):
         return MinimalSource(file_path=self.file_path,
                              first_character_index=self.first_character_index,
                              last_character_index=self.last_character_index)
+
+
+class ChunkTable(BaseModel):
+    """All chunks in chunk-id order (BM25's ids index this list)."""
+    chunks: list[Chunk]
