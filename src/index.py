@@ -27,9 +27,13 @@ def build_index(config: RagConfig) -> int:
             continue  # never happens, just for mypy
 
         for chunk in chunker.chunk(path, text):
+            tokens = tokenizer.tokenize(
+                text[chunk.first_character_index:chunk.last_character_index])
+            tokens += tokenizer.tokenize(chunk.title or "")
+            rel_path = chunk.file_path.removeprefix(config.raw_dir)
+            tokens += tokenizer.tokenize(chunk.file_path)
             chunks.append(chunk)
-            docs.append(tokenizer.tokenize(
-                text[chunk.first_character_index:chunk.last_character_index]))
+            docs.append(tokens)
     bm25 = BM25Index.build(docs, config.bm25_k1, config.bm25_b)
     out_path = Path(config.processed_dir)
     bm25.save(out_path / "bm25.npz")
