@@ -8,7 +8,7 @@ Definition = ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef
 
 
 class PythonChunker(Chunker):
-    """One section per top-level def/class; glue code in between."""
+    """Sections at top-level defs/classes (methods of big classes), packed."""
     kind = "python"
 
     def _sections(self, text: str) -> list[Span]:
@@ -26,11 +26,20 @@ class PythonChunker(Chunker):
             lines = [node.lineno] + [d.lineno for d in node.decorator_list]
             return line_start[min(lines) - 1]
 
+        functions = (ast.FunctionDef, ast.AsyncFunctionDef)
         cuts: list[tuple[int, str]] = []
         for node in tree.body:
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef,
-                                 ast.ClassDef)):
+            if isinstance(node, functions):
                 cuts.append((start_of(node), node.name))
+            elif isinstance(node, ast.ClassDef):
+                start = start_of(node)
+                end = line_start[node.end_lineno or node.lineno]
+                cuts.append((start, node.name))
+                if end - start > self.max_chunk_size:  # big class
+                    for sub in node.body:
+                        if isinstance(sub, functions):
+                            title = f"{node.name}.{sub.name}"
+                            cuts.append((start_of(sub), title))
             else:
                 cuts.append((line_start[node.lineno - 1], ""))
         merged: list[tuple[int, str]] = []
@@ -47,4 +56,13 @@ class PythonChunker(Chunker):
         for (curr, title), nxt in zip(merged, ends):
             if nxt > curr:  # skip empty sections (and empty files)
                 result.append((curr, nxt, title))
-        return result
+        # grow the last section while the merged span still fits
+        packed: list[Span] = []
+        for start, end, title in result:
+            if packed and end - packed[-1][0] <= self.max_chunk_size:
+                p_start, _, p_title = packed[-1]
+                joined = " ".join(t for t in (p_title, title) if t)
+                packed[-1] = (p_start, end, joined)
+            else:
+                packed.append((start, end, title))
+        return packed

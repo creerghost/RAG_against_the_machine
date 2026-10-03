@@ -124,3 +124,52 @@ class TestLora:
         assert (4695, 6100, "Using API Endpoints") in spans(chunks)
         assert all(c.file_path == str(LORA) for c in chunks)
         assert all(c.kind == "markdown" for c in chunks)
+
+
+SAMPLE = ('import os\nimport sys\n\nX = 1\n\n\n@decorator\ndef f():\n'
+          '    return 1\n\n\nclass C:\n    """Doc."""\n\n    def a(self):\n'
+          '        pass\n\n    @property\n    def b(self):\n        pass\n')
+
+
+def py(size: int = 2000) -> PythonChunker:
+    """Return a PythonChunker with the default separators."""
+    return PythonChunker(size, SEPS)
+
+
+class TestPythonChunker:
+    """AST sections, big-class splitting, packing and fallback."""
+
+    def test_small_limit_cuts_everything(self) -> None:
+        """Glue, function, class header and methods become sections."""
+        assert py(30)._sections(SAMPLE) == [
+            (0, 30, ""), (30, 65, "f"), (65, 90, "C"), (90, 121, "C.a"),
+            (121, 165, "C.b")]
+
+    def test_decorators_belong_to_their_definition(self) -> None:
+        """Sections start at the decorator line, not at ``def``."""
+        starts = {t: s for s, _, t in py(30)._sections(SAMPLE)}
+        assert SAMPLE[starts["f"]:].startswith("@decorator")
+        assert SAMPLE[starts["C.b"]:].lstrip().startswith("@property")
+
+    def test_packing(self) -> None:
+        """Neighbours merge while they fit, joining titles."""
+        assert py(60)._sections(SAMPLE) == [
+            (0, 30, ""), (30, 90, "f C"), (90, 121, "C.a"),
+            (121, 165, "C.b")]
+        assert py(2000)._sections(SAMPLE) == [(0, 165, "f C")]
+
+    def test_leading_comment_joins_glue(self) -> None:
+        """A license header and imports form one untitled section."""
+        text = "# lic\nimport os\ndef g(): pass\n"
+        assert py(10)._sections(text) == [(0, 16, ""), (16, 30, "g")]
+
+    def test_fallback_and_empty(self) -> None:
+        """Unparsable code is one section; empty text has none."""
+        assert py()._sections("def broken(:\n") == [(0, 13, "")]
+        assert py()._sections("") == []
+        assert py().chunk("f.py", "") == []
+
+    @pytest.mark.parametrize("max_size", [7, 300, 2000])
+    def test_valid_chunks(self, max_size: int) -> None:
+        """Chunks are contiguous and within the limit at any size."""
+        assert_valid(py(max_size).chunk("f.py", SAMPLE), SAMPLE, max_size)
