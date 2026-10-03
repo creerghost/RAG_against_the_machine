@@ -15,23 +15,30 @@ class BM25Index:
         self.k1 = k1
         self.b = b
         # derived, never saved: always consistent with the counts
-        n_chunks = len(doc_len)
-        self.avgdl = float(doc_len.mean()) if n_chunks else 0.0
+        self.n_chunks = len(doc_len)
+        self.avgdl = float(doc_len.mean()) if self.n_chunks else 0.0
         df = np.diff(indptr)  # chunks containing each term
-        self.idf = np.log(1 + (n_chunks - df + 0.5) / (df + 0.5))
+        self.idf = np.log(1 + (self.n_chunks - df + 0.5) / (df + 0.5))
 
     @classmethod
     def build(cls, docs: list[list[str]], k1: float, b: float) -> "BM25Index":
-        chunks_counter = [Counter(chunk) for chunk in docs]
+        tf = [Counter(chunk) for chunk in docs]
         unique = set(itertools.chain.from_iterable(docs))
         vocab = {word: idx for idx, word in enumerate(sorted(unique))}
 
         postings: list[list[tuple[int, int]]] = [[] for _ in vocab]
-        for chunk_id, counter in enumerate(chunks_counter):
+        for chunk_id, counter in enumerate(tf):
             for word, tf in counter.items():
                 postings[vocab[word]].append((chunk_id, tf))
 
+        # these 4 variables represents postings without nested lists
+        # lengths, indptr, chunk_ids, tfs
+
+        # lengths = nbr of chunks containing that word
         lengths = [len(p) for p in postings]
+        # we are about to flatten nested list -> we need to remember
+        # where each word's imformation starts and ends -> indptr
+        # basically word boundaries indptr = f(lengths)
         indptr = np.concatenate(([0], np.cumsum(lengths))).astype(np.int64)
         chunk_ids = np.array([c for p in postings for c, _ in p],
                              dtype=np.int64)
@@ -40,11 +47,36 @@ class BM25Index:
         return cls(vocab, indptr, chunk_ids, tfs, doc_len, k1, b)
 
     def scores(self, query_tokens: list[str]) -> np.ndarray:
-        # one score per chunk
-        pass
+        scores = np.zeros(self.n_chunks)
+        # dict.fromkeys() will remove duplicate tokens
+        for t in dict.fromkeys(query_tokens):
+            if t not in self.vocab:
+                continue
+            t_id = self.vocab[t]
+            start, end = self.indptr[t_id], self.indptr[t_id + 1]
+            ids = self.chunk_ids[start:end]
+            tf = self.tfs[start:end]
+            d_len = self.doc_len[ids]
+            w = self.idf[t_id] * tf * (self.k1 + 1) / (
+                tf + self.k1 * (1 - self.b + self.b * d_len / self.avgdl))
+            scores[ids] += w
+        return scores
 
-    def top_k(self, query_tokens: list[str], k: int) -> list[tuple[int, float]]:
-        pass
+    def top_k(self, query_tokens: list[str], k: int
+              ) -> list[tuple[int, float]]:
+        scores = self.scores(query_tokens)
+        ids = np.flatnonzero(scores > 0)
+        if len(ids) == 0 or k <= 0:
+            return []
+        if k > len(ids):
+            k = len(ids)
+        valid_scores = scores[ids]
+        top_k_idx = np.argpartition(valid_scores, -k)[-k:]
+        top_k_idx_sorted = top_k_idx[np.argsort(-valid_scores[top_k_idx])]
+        best = ids[top_k_idx_sorted]
+        return [(int(c), float(scores[c])) for c in best]
+
+        
 
     def save(self, path):
         pass
@@ -69,3 +101,4 @@ if __name__ == "__main__":
     t = index.vocab["lora"]
     print("lora ->", index.chunk_ids[index.indptr[t]:index.indptr[t + 1]],
           index.tfs[index.indptr[t]:index.indptr[t + 1]])
+    print(index.top_k(["hello", "config", "lora"], 5))
