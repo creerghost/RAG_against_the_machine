@@ -1,13 +1,26 @@
-import numpy as np
-from collections import Counter
+"""BM25 over an inverted index stored as CSR arrays (numpy only)."""
+
 import itertools
+from collections import Counter
 from pathlib import Path
+
+import numpy as np
+import numpy.typing as npt
+
+IntArray = npt.NDArray[np.int64]
+FloatArray = npt.NDArray[np.float64]
 
 
 class BM25Index:
-    def __init__(self, vocab: dict[str, int], indptr: np.ndarray,
-                 chunk_ids: np.ndarray, tfs: np.ndarray, doc_len: np.ndarray,
+    """Raw term counts per chunk; idf and avgdl are derived, never stored.
+
+    Postings of term ``t`` are ``chunk_ids[indptr[t]:indptr[t + 1]]`` with
+    counts ``tfs[...]`` at the same positions.
+    """
+    def __init__(self, vocab: dict[str, int], indptr: IntArray,
+                 chunk_ids: IntArray, tfs: IntArray, doc_len: IntArray,
                  k1: float, b: float) -> None:
+        """Store the arrays and BM25 parameters; derive avgdl and idf."""
         self.vocab = vocab
         self.indptr = indptr
         self.chunk_ids = chunk_ids
@@ -15,31 +28,27 @@ class BM25Index:
         self.doc_len = doc_len
         self.k1 = k1
         self.b = b
-        # derived, never saved: always consistent with the counts
         self.n_chunks = len(doc_len)
         self.avgdl = float(doc_len.mean()) if self.n_chunks else 0.0
         df = np.diff(indptr)  # chunks containing each term
-        self.idf = np.log(1 + (self.n_chunks - df + 0.5) / (df + 0.5))
+        self.idf: FloatArray = np.log(
+            1 + (self.n_chunks - df + 0.5) / (df + 0.5))
 
     @classmethod
     def build(cls, docs: list[list[str]], k1: float, b: float) -> "BM25Index":
-        tf = [Counter(chunk) for chunk in docs]
+        """Index ``docs``, one token list per chunk; chunk id = list index."""
+        counters = [Counter(chunk) for chunk in docs]
         unique = set(itertools.chain.from_iterable(docs))
         vocab = {word: idx for idx, word in enumerate(sorted(unique))}
 
+        # A: one posting list per term, (chunk_id, tf) pairs
         postings: list[list[tuple[int, int]]] = [[] for _ in vocab]
-        for chunk_id, counter in enumerate(tf):
+        for chunk_id, counter in enumerate(counters):
             for word, tf in counter.items():
                 postings[vocab[word]].append((chunk_id, tf))
 
-        # these 4 variables represents postings without nested lists
-        # lengths, indptr, chunk_ids, tfs
-
-        # lengths = nbr of chunks containing that word
+        # B: flatten; indptr marks where each term's postings start
         lengths = [len(p) for p in postings]
-        # we are about to flatten nested list -> we need to remember
-        # where each word's imformation starts and ends -> indptr
-        # basically word boundaries indptr = f(lengths)
         indptr = np.concatenate(([0], np.cumsum(lengths))).astype(np.int64)
         chunk_ids = np.array([c for p in postings for c, _ in p],
                              dtype=np.int64)
@@ -47,9 +56,9 @@ class BM25Index:
         doc_len = np.array([len(chunk) for chunk in docs], dtype=np.int64)
         return cls(vocab, indptr, chunk_ids, tfs, doc_len, k1, b)
 
-    def scores(self, query_tokens: list[str]) -> np.ndarray:
+    def scores(self, query_tokens: list[str]) -> FloatArray:
+        """Return one BM25 score per chunk; repeated query terms count once."""
         scores = np.zeros(self.n_chunks)
-        # dict.fromkeys() will remove duplicate tokens
         for t in dict.fromkeys(query_tokens):
             if t not in self.vocab:
                 continue
@@ -63,14 +72,14 @@ class BM25Index:
             scores[ids] += w
         return scores
 
-    def top_k(self, query_tokens: list[str], k: int
-              ) -> list[tuple[int, float]]:
+    def top_k(self, query_tokens: list[str],
+              k: int) -> list[tuple[int, float]]:
+        """Return up to ``k`` best ``(chunk_id, score)`` with score > 0."""
         scores = self.scores(query_tokens)
         ids = np.flatnonzero(scores > 0)
         if len(ids) == 0 or k <= 0:
             return []
-        if k > len(ids):
-            k = len(ids)
+        k = min(k, len(ids))
         valid_scores = scores[ids]
         top_k_idx = np.argpartition(valid_scores, -k)[-k:]
         top_k_idx_sorted = top_k_idx[np.argsort(-valid_scores[top_k_idx])]
@@ -78,15 +87,17 @@ class BM25Index:
         return [(int(c), float(scores[c])) for c in best]
 
     def save(self, path: str | Path) -> None:
+        """Write the raw arrays, terms (in id order), k1 and b to ``path``."""
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        terms = sorted(self.vocab, key=self.vocab.get)
+        terms = sorted(self.vocab, key=self.vocab.__getitem__)
         np.savez(path, indptr=self.indptr, chunk_ids=self.chunk_ids,
                  tfs=self.tfs, doc_len=self.doc_len, terms=np.array(terms),
                  params=np.array([self.k1, self.b]))
 
     @classmethod
     def load(cls, path: str | Path) -> "BM25Index":
+        """Read an index written by ``save``; FileNotFoundError if absent."""
         with np.load(path) as data:
             indptr = data["indptr"]
             chunk_ids = data["chunk_ids"]
@@ -96,28 +107,3 @@ class BM25Index:
             k1 = float(data["params"][0])
             b = float(data["params"][1])
         return cls(vocab, indptr, chunk_ids, tfs, doc_len, k1, b)
-
-
-if __name__ == "__main__":
-    chunks = [
-        ["lora", "adapter", "load", "lora"],
-        ["load", "model"],
-        ["lora", "config"]
-    ]
-    index = BM25Index.build(chunks, k1=1.5, b=0.75)
-    print("vocab    ", index.vocab)
-    print("indptr   ", index.indptr)
-    print("chunk_ids", index.chunk_ids)
-    print("tfs      ", index.tfs)
-    print("doc_len  ", index.doc_len, "avgdl", round(index.avgdl, 2))
-    print("idf      ", index.idf.round(3))
-    t = index.vocab["lora"]
-    print("lora ->", index.chunk_ids[index.indptr[t]:index.indptr[t + 1]],
-          index.tfs[index.indptr[t]:index.indptr[t + 1]])
-    print(index.top_k(["hello", "config", "lora"], 5))
-    path = "rest/bm25.npz"
-    index.save(path)
-    loaded = BM25Index.load(path)
-    q = ["hello", "config", "lora"]
-    print("same top_k:", loaded.top_k(q, 10) == index.top_k(q, 10))
-    print("same vocab:", loaded.vocab == index.vocab)

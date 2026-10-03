@@ -39,3 +39,9 @@ class RagConfig(BaseModel):
         "for", "from", "how", "if", "in", "is", "it", "its", "of", "on", "or",
         "that", "the", "this", "to", "was", "what", "when", "where", "which",
         "who", "why", "with"})
+    # BM25 term-frequency saturation (~1.2-2.0). Used in: bm25.py (via
+    # index.py).
+    bm25_k1: float = Field(default=1.5, gt=0)
+    # BM25 length normalization, 0 (none) to 1 (full). Used in: bm25.py
+    # (via index.py).
+    bm25_b: float = Field(default=0.75, ge=0, le=1)

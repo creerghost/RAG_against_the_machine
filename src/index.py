@@ -8,4 +8,4 @@ def build_index(config: RagConfig) -> int:
 
     Returns the number of chunks; stored paths keep the ``raw_dir`` prefix.
     """
-    raise NotImplementedError("build_index")
+    
