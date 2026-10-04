@@ -602,6 +602,7 @@ max RSS (everything, including ≈ 120 MB for Python, numpy and pydantic themsel
 | Start: one token list per chunk | 318 MB | 435 MB | 4.7–4.9 s |
 | Interned `Counter` per chunk | 166 MB | 287 MB | 4.6–4.8 s |
 | `CorpusLoader.load` as a generator | 166 MB | 272 MB | 4.6–4.8 s |
+| CSR arrays built in numpy | **116 MB** | **180 MB** | 4.4 s |
 
 - **Duplicate strings.** `token.lower()` creates a new string every time,
   so a common word like `model` existed as tens of thousands of separate
@@ -617,6 +618,13 @@ max RSS (everything, including ≈ 120 MB for Python, numpy and pydantic themsel
   Python peak stays the same because it happens later, in
   `BM25Index.build`, when the list was already freed; the process peak
   still drops by 15 MB.
+- **1.18 million tuples.** `build` first collected a `(chunk_id, tf)` tuple
+  per posting in Python lists (≈ 64 bytes each plus int objects), then
+  copied them into arrays. Now it writes every (term, chunk, tf) entry
+  straight into three preallocated numpy arrays (8 bytes per value), groups
+  them by term with a stable `argsort`, and gets `indptr` from
+  `np.bincount` + `cumsum`. The stable sort keeps chunk ids ascending within
+  each term, so the saved index is byte-for-byte the same as before.
 - **What did not help:** turning `return` into `yield` in the chunkers,
   the tokenizer or the retriever. Their lists are small and short-lived, and
   a generator spreads the same work out rather than removing it.

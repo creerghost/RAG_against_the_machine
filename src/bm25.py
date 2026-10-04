@@ -39,19 +39,24 @@ class BM25Index:
         """Index ``counters``, one term count per chunk; id = list index."""
         unique = {word for c in counters for word in c}
         vocab = {word: idx for idx, word in enumerate(sorted(unique))}
+        total = sum(len(c) for c in counters)
+        term_ids = np.empty(total, dtype=np.int64)
+        chunk_ids = np.empty(total, dtype=np.int64)
+        tfs = np.empty(total, dtype=np.int64)
 
-        # A: one posting list per term, (chunk_id, tf) pairs
-        postings: list[list[tuple[int, int]]] = [[] for _ in vocab]
+        pos = 0
         for chunk_id, counter in enumerate(counters):
-            for word, tf in counter.items():
-                postings[vocab[word]].append((chunk_id, tf))
+            n = len(counter)
+            term_ids[pos:pos+n] = [vocab[word] for word in counter]
+            tfs[pos:pos+n] = list(counter.values())
+            chunk_ids[pos:pos+n] = chunk_id
+            pos += n
 
-        # B: flatten; indptr marks where each term's postings start
-        lengths = [len(p) for p in postings]
+        order = np.argsort(term_ids, kind="stable")
+        tfs = tfs[order]
+        chunk_ids = chunk_ids[order]
+        lengths = np.bincount(term_ids, minlength=len(vocab))
         indptr = np.concatenate(([0], np.cumsum(lengths))).astype(np.int64)
-        chunk_ids = np.array([c for p in postings for c, _ in p],
-                             dtype=np.int64)
-        tfs = np.array([tf for p in postings for _, tf in p], dtype=np.int64)
         doc_len = np.array([sum(c.values()) for c in counters],
                            dtype=np.int64)
         return cls(vocab, indptr, chunk_ids, tfs, doc_len, k1, b)
