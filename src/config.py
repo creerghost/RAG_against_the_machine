@@ -1,5 +1,7 @@
 """All tunable settings in one place; each field says which files use it."""
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -12,6 +14,10 @@ class RagConfig(BaseModel):
     processed_dir: str = "data/processed"
     # Hugging Face id of the answer model. Used in: cli.py, generator.py.
     model_name: str = "Qwen/Qwen3-0.6B"
+    # Weight precision of the answer model. bfloat16 is ~1.8x faster on CPUs
+    # with native bf16 (AVX512_BF16 / AMX) but can be slower without it.
+    # Used in: cli.py, generator.py.
+    model_dtype: Literal["float32", "bfloat16"] = "float32"
     # Default chunk width in characters. Used in: cli.py,
     # chunking/__init__.py.
     max_chunk_size: int = Field(default=2000, ge=1)

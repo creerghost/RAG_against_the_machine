@@ -126,7 +126,14 @@ Every command is `uv run python -m src <command> [options]`:
 | `evaluate --student_search_results_path P --dataset_path D` | Print recall@1/3/5/10 against a ground-truth dataset |
 
 Global options go before the command: `--raw_dir`, `--processed_dir`,
-`--model_name`. All defaults live in `src/config.py`.
+`--model_name`, `--model_dtype float32|bfloat16`. All defaults live in
+`src/config.py`. `bfloat16` makes answering ≈ 1.8× faster on CPUs with
+native bf16 support (AVX-512 BF16 or AMX) but can be slower on others, so
+the default stays `float32`:
+
+```bash
+uv run python -m src --model_dtype bfloat16 answer "How to load a LoRA adapter"
+```
 
 Makefile targets: `install`, `run` (`make run ARGS="search 'lora adapter'"`),
 `debug` (same under `pdb`), `test`, `lint`, `lint-strict`, `clean`.
@@ -602,7 +609,8 @@ max RSS (everything, including ≈ 120 MB for Python, numpy and pydantic themsel
 | Start: one token list per chunk | 318 MB | 435 MB | 4.7–4.9 s |
 | Interned `Counter` per chunk | 166 MB | 287 MB | 4.6–4.8 s |
 | `CorpusLoader.load` as a generator | 166 MB | 272 MB | 4.6–4.8 s |
-| CSR arrays built in numpy | **116 MB** | **180 MB** | 4.4 s |
+| CSR arrays built in numpy | 116 MB | 180 MB | 4.4 s |
+| `int32` arrays, vocabulary saved as one UTF-8 string | **99 MB** | **152 MB** | 4.4 s |
 
 - **Duplicate strings.** `token.lower()` creates a new string every time,
   so a common word like `model` existed as tens of thousands of separate
@@ -625,6 +633,25 @@ max RSS (everything, including ≈ 120 MB for Python, numpy and pydantic themsel
   them by term with a stable `argsort`, and gets `indptr` from
   `np.bincount` + `cumsum`. The stable sort keeps chunk ids ascending within
   each term, so the saved index is byte-for-byte the same as before.
+- **Oversized number and string types.** `chunk_ids` (max 15,558), `tfs`
+  (max 77) and `doc_len` were `int64`; `int32` halves them, 18 → 9 MB.
+  Only `indptr`
+  stays `int64`: it is a running total over all postings, which grows with
+  the corpus. The vocabulary was saved with `np.array(terms)`, which gives
+  *every* term the width of the longest one (`<U99`: 99 characters × 4
+  bytes, for a median term of 12 characters — the long ones are CUDA kernel
+  names). It is now saved as one `"\n"`-joined string, encoded as UTF-8
+  bytes (`uint8` array, 1 byte per ASCII character instead of numpy's 4):
+  21.6 MB → 0.8 MB. On load it is decoded and split; an empty string means
+  an empty vocabulary, not one empty term — a case now covered by tests.
+
+This also shrank what `search` loads:
+
+| | Before | After |
+|---|---|---|
+| `bm25.npz` on disk | 42.1 MB | 10.8 MB |
+| `search` command (Python memory, incl. imports) | 58 MB | 49 MB |
+| `search` command, wall time | ≈ 0.37 s | ≈ 0.23 s |
 - **What did not help:** turning `return` into `yield` in the chunkers,
   the tokenizer or the retriever. Their lists are small and short-lived, and
   a generator spreads the same work out rather than removing it.

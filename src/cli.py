@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import fire
+from pydantic import ValidationError
 from tqdm import tqdm
 
 from .config import RagConfig
@@ -60,12 +61,18 @@ class RagCli:
     """RAG over the vLLM codebase: index, search, answer, evaluate."""
     def __init__(self, raw_dir: Optional[str] = None,
                  processed_dir: Optional[str] = None,
-                 model_name: Optional[str] = None) -> None:
+                 model_name: Optional[str] = None,
+                 model_dtype: Optional[str] = None) -> None:
         """Build the config; given flags override ``RagConfig`` defaults."""
         flags = {"raw_dir": raw_dir, "processed_dir": processed_dir,
-                 "model_name": model_name}
+                 "model_name": model_name, "model_dtype": model_dtype}
         overrides = {k: str(v) for k, v in flags.items() if v is not None}
-        self.config = RagConfig.model_validate(overrides)
+        try:
+            self.config = RagConfig.model_validate(overrides)
+        except ValidationError as e:
+            errors = "; ".join(f"--{err['loc'][0]}: {err['msg']}"
+                               for err in e.errors())
+            raise CliError(errors) from e
 
     def _retriever(self) -> Retriever:
         """Load the index, turning a missing index into a ``CliError``."""
@@ -75,7 +82,8 @@ class RagCli:
         except FileNotFoundError as e:
             raise CliError(f"No index in {processed} ({e}). "
                            "Run the 'index' command first.") from e
-        except (OSError, ValueError, KeyError) as e:  # corrupt index files
+        except (OSError, ValueError, KeyError, AttributeError) as e:
+            # corrupt or old-format index files
             raise CliError(f"Index in {processed} is unreadable ({e}). "
                            "Run the 'index' command again.") from e
 

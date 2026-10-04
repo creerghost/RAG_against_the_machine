@@ -6,7 +6,8 @@ from pathlib import Path
 import numpy as np
 import numpy.typing as npt
 
-IntArray = npt.NDArray[np.int64]
+IntArray64 = npt.NDArray[np.int64]
+IntArray32 = npt.NDArray[np.int32]
 FloatArray = npt.NDArray[np.float64]
 
 
@@ -16,8 +17,8 @@ class BM25Index:
     Postings of term ``t`` are ``chunk_ids[indptr[t]:indptr[t + 1]]`` with
     counts ``tfs[...]`` at the same positions.
     """
-    def __init__(self, vocab: dict[str, int], indptr: IntArray,
-                 chunk_ids: IntArray, tfs: IntArray, doc_len: IntArray,
+    def __init__(self, vocab: dict[str, int], indptr: IntArray64,
+                 chunk_ids: IntArray32, tfs: IntArray32, doc_len: IntArray32,
                  k1: float, b: float) -> None:
         """Store the arrays and BM25 parameters; derive avgdl and idf."""
         self.vocab = vocab
@@ -41,8 +42,8 @@ class BM25Index:
         vocab = {word: idx for idx, word in enumerate(sorted(unique))}
         total = sum(len(c) for c in counters)
         term_ids = np.empty(total, dtype=np.int64)
-        chunk_ids = np.empty(total, dtype=np.int64)
-        tfs = np.empty(total, dtype=np.int64)
+        chunk_ids = np.empty(total, dtype=np.int32)
+        tfs = np.empty(total, dtype=np.int32)
 
         pos = 0
         for chunk_id, counter in enumerate(counters):
@@ -58,7 +59,7 @@ class BM25Index:
         lengths = np.bincount(term_ids, minlength=len(vocab))
         indptr = np.concatenate(([0], np.cumsum(lengths))).astype(np.int64)
         doc_len = np.array([sum(c.values()) for c in counters],
-                           dtype=np.int64)
+                           dtype=np.int32)
         return cls(vocab, indptr, chunk_ids, tfs, doc_len, k1, b)
 
     def scores(self, query_tokens: list[str]) -> FloatArray:
@@ -96,8 +97,11 @@ class BM25Index:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         terms = sorted(self.vocab, key=self.vocab.__getitem__)
+        # UTF-8 bytes: a numpy str array would take 4 bytes per character
+        encoded_terms = "\n".join(terms).encode("utf-8")
         np.savez(path, indptr=self.indptr, chunk_ids=self.chunk_ids,
-                 tfs=self.tfs, doc_len=self.doc_len, terms=np.array(terms),
+                 tfs=self.tfs, doc_len=self.doc_len,
+                 terms=np.frombuffer(encoded_terms, dtype=np.uint8),
                  params=np.array([self.k1, self.b]))
 
     @classmethod
@@ -108,7 +112,9 @@ class BM25Index:
             chunk_ids = data["chunk_ids"]
             tfs = data["tfs"]
             doc_len = data["doc_len"]
-            vocab = {str(t): i for i, t in enumerate(data["terms"])}
+            joined_terms = data["terms"].tobytes().decode("utf-8")
+            terms = joined_terms.split("\n") if joined_terms else []
+            vocab = {t: i for i, t in enumerate(terms)}
             k1 = float(data["params"][0])
             b = float(data["params"][1])
         return cls(vocab, indptr, chunk_ids, tfs, doc_len, k1, b)

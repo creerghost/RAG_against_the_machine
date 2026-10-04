@@ -86,3 +86,13 @@ def test_load_missing(tmp_path: Path) -> None:
     """Loading a missing file raises FileNotFoundError."""
     with pytest.raises(FileNotFoundError):
         BM25Index.load(tmp_path / "missing.npz")
+
+
+@pytest.mark.parametrize("words", [[], ["lora"], ["lora", "ünïcode"]])
+def test_save_load_small_vocab(tmp_path: Path, words: list[str]) -> None:
+    """Empty, one-term and non-ASCII vocabularies survive save and load."""
+    idx = BM25Index.build([Counter(words)] if words else [], 1.5, 0.75)
+    idx.save(tmp_path / "bm25.npz")
+    loaded = BM25Index.load(tmp_path / "bm25.npz")
+    assert loaded.vocab == idx.vocab
+    assert len(loaded.idf) == len(loaded.vocab)
