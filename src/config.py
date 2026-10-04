@@ -69,4 +69,5 @@ class RagConfig(BaseModel):
         "- Copy names exactly as written in the sources: functions, "
         "classes, parameters, flags, endpoints, environment variables "
         "and default values.\n"
-        "- Mention the number of the source you used, like [1].")
+        "- End the answer with the number of the source you used in "
+        "brackets, for example: … is /v1/load_lora_adapter. [1]")
