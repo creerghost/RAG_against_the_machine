@@ -136,11 +136,10 @@ class RagCli:
 
     def answer(self, query: Any = None, k: Any = None) -> None:
         """Print a generated answer to ``query`` and its ``k`` sources."""
-        from .generator import Generator  # heavy: torch, transformers
-
         text, k = _as_text(query, "query"), self._k(k)
         sources = self._retriever().search(text, k)
         if sources:
+            from .generator import Generator  # heavy: torch takes ~2 s
             print(Generator(self.config).answer(text, sources))
         else:  # nothing to ground on: skip loading the model
             print(self.config.no_answer)
@@ -150,14 +149,14 @@ class RagCli:
     def answer_dataset(self, student_search_results_path: Any = None,
                        save_directory: Any = None) -> None:
         """Answer every question of a search results file; save the output."""
-        from .generator import Generator  # heavy: torch, transformers
-
         name = "student_search_results_path"
         src = _as_path(student_search_results_path, name)
         out_dir = _as_path(save_directory, "save_directory")
         searched = load_model(src, StudentSearchResults)
         total = len(searched.search_results)
         print(f"Loaded {total} questions from {src}")
+        # imported only once the input is valid: torch takes ~2 s to load
+        from .generator import Generator
         generator = Generator(self.config)
         answers: list[MinimalAnswer] = []
         for r in tqdm(searched.search_results, desc="Answering", unit="q"):
