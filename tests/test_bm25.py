@@ -1,6 +1,7 @@
 """Tests for the BM25 index."""
 
 import math
+from collections import Counter
 from pathlib import Path
 
 import numpy as np
@@ -14,7 +15,7 @@ DOCS = [["lora", "adapter", "load", "lora"], ["load", "model"],
 
 def index() -> BM25Index:
     """Return the three-chunk example index."""
-    return BM25Index.build(DOCS, k1=1.5, b=0.75)
+    return BM25Index.build([Counter(d) for d in DOCS], k1=1.5, b=0.75)
 
 
 def reference(query: list[str]) -> list[float]:

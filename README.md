@@ -137,7 +137,7 @@ Makefile targets: `install`, `run` (`make run ARGS="search 'lora adapter'"`),
 
 ```bash
 uv run python -m src index
-# Loading: 100%|██████████| 1969/1969 [00:00<00:00, 34741.25file/s]
+# Indexing: 100%|██████████| 1847/1847 [00:04<00:00, 461.55file/s]
 # Ingestion complete! Indexed 15559 chunks under data/processed/
 
 uv run python -m src search "How to load a LoRA adapter" --k 3
@@ -590,6 +590,29 @@ budget stays at 1,500 tokens.
 - **Making the small model behave:** Qwen3 "thinks" out loud by default;
   `enable_thinking=False` plus short, explicit rules and a fixed refusal
   sentence keep answers short and grounded.
+
+### Memory during indexing
+
+Indexing was fast (≈ 4.5 s) but held far more memory than the data needs.
+Measured with `tracemalloc` module (Python allocations) and the process's
+max RSS (everything, including ≈ 120 MB for Python, numpy and pydantic themselves):
+
+| Change | Python peak | Process peak | Time |
+|---|---|---|---|
+| Start: one token list per chunk | 318 MB | 435 MB | 4.7–4.9 s |
+| Interned `Counter` per chunk | 166 MB | 287 MB | 4.6–4.8 s |
+
+- **Duplicate strings.** `token.lower()` creates a new string every time,
+  so a common word like `model` existed as tens of thousands of separate
+  copies. `sys.intern` makes every chunk point to one shared copy.
+- **Keeping what BM25 never reads.** BM25 needs only how often each term
+  occurs in a chunk and the chunk's length, not the tokens in order. Storing
+  a `Counter` per chunk instead of the token list drops the repeats, and
+  `BM25Index.build` no longer holds the token lists and the counters at
+  the same time. Recall is unchanged (same arrays, same index).
+- **What did not help:** turning `return` into `yield` in the chunkers,
+  the tokenizer or the retriever. Their lists are small and short-lived, and
+  a generator spreads the same work out rather than removing it.
 
 ---
 

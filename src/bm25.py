@@ -1,6 +1,5 @@
 """BM25 over an inverted index stored as CSR arrays (numpy only)."""
 
-import itertools
 from collections import Counter
 from pathlib import Path
 
@@ -35,10 +34,10 @@ class BM25Index:
             1 + (self.n_chunks - df + 0.5) / (df + 0.5))
 
     @classmethod
-    def build(cls, docs: list[list[str]], k1: float, b: float) -> "BM25Index":
-        """Index ``docs``, one token list per chunk; chunk id = list index."""
-        counters = [Counter(chunk) for chunk in docs]
-        unique = set(itertools.chain.from_iterable(docs))
+    def build(cls, counters: list[Counter[str]], k1: float,
+              b: float) -> "BM25Index":
+        """Index ``counters``, one term count per chunk; id = list index."""
+        unique = {word for c in counters for word in c}
         vocab = {word: idx for idx, word in enumerate(sorted(unique))}
 
         # A: one posting list per term, (chunk_id, tf) pairs
@@ -53,7 +52,8 @@ class BM25Index:
         chunk_ids = np.array([c for p in postings for c, _ in p],
                              dtype=np.int64)
         tfs = np.array([tf for p in postings for _, tf in p], dtype=np.int64)
-        doc_len = np.array([len(chunk) for chunk in docs], dtype=np.int64)
+        doc_len = np.array([sum(c.values()) for c in counters],
+                           dtype=np.int64)
         return cls(vocab, indptr, chunk_ids, tfs, doc_len, k1, b)
 
     def scores(self, query_tokens: list[str]) -> FloatArray:

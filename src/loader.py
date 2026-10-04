@@ -4,8 +4,6 @@ import sys
 from pathlib import Path
 from typing import Iterable, Optional
 
-from tqdm import tqdm
-
 
 class CorpusLoader:
     """Turns ``raw_dir`` into sorted ``(file_path, text)`` pairs."""
@@ -38,7 +36,7 @@ class CorpusLoader:
     def load(self) -> list[tuple[str, str]]:
         """Return ``(path, text)`` for every readable, non-blank file."""
         result: list[tuple[str, str]] = []
-        for path in tqdm(self.paths(), desc="Loading", unit="file"):
+        for path in self.paths():
             text = self.read(path)
             if text is None or not text.strip():
                 continue

@@ -1,12 +1,17 @@
 """Build the on-disk index: load files, chunk them, build BM25."""
 
+import sys
+from collections import Counter
+from pathlib import Path
+
+from tqdm import tqdm
+
 from .config import RagConfig
 from .loader import CorpusLoader
 from .bm25 import BM25Index
 from .tokenizer import Tokenizer
 from .chunking import chunker_for
 from .models import Chunk, ChunkTable
-from pathlib import Path
 from .io_utils import save_model
 
 
@@ -17,9 +22,9 @@ def build_index(config: RagConfig) -> int:
     """
     loader = CorpusLoader(config.raw_dir, config.chunker_by_extension.keys())
     chunks: list[Chunk] = []
-    docs: list[list[str]] = []
+    counters: list[Counter[str]] = []
     tokenizer = Tokenizer(config.stopwords, config.min_token_length)
-    for path, text in loader.load():
+    for path, text in tqdm(loader.load(), desc="Indexing", unit="file"):
         # this will create around 1800 tiny objects,
         # which are negligible to cache
         chunker = chunker_for(path, config)
@@ -33,8 +38,9 @@ def build_index(config: RagConfig) -> int:
             rel_path = chunk.file_path.removeprefix(config.raw_dir)
             tokens += tokenizer.tokenize(rel_path)
             chunks.append(chunk)
-            docs.append(tokens)
-    bm25 = BM25Index.build(docs, config.bm25_k1, config.bm25_b)
+            counters.append(Counter(sys.intern(t) for t in tokens))
+
+    bm25 = BM25Index.build(counters, config.bm25_k1, config.bm25_b)
     out_path = Path(config.processed_dir)
     bm25.save(out_path / "bm25.npz")
     save_model(ChunkTable(chunks=chunks), out_path / "chunks.json")
