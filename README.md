@@ -15,11 +15,8 @@ vector database.
 ## Table of contents
 
 1. [Description](#description)
-    - [RAG in one minute](#rag-in-one-minute)
-    - [What this project builds](#what-this-project-builds)
 2. [Instructions](#instructions)
 3. [Example usage](#example-usage)
-    - [Rejected input](#rejected-input)
 4. [System architecture](#system-architecture)
 5. [Chunking strategy](#chunking-strategy)
 6. [Retrieval method](#retrieval-method)
@@ -68,10 +65,10 @@ reference and overlaps it with **IoU ≥ 0.05**. IoU (intersection over union)
 compares two character ranges:
 
 ```
-reference:  [==========]              100 → 200
-retrieved:        [==========]        150 → 250
-intersection:     [====]                          50 chars
-union:      [================]                    150 chars     → IoU = 50/150 = 0.33
+reference:     [==========]          100 → 200
+retrieved:          [==========]     150 → 250
+intersection:       [=====]          150 → 200   50 chars
+union:         [===============]     100 → 250   150 chars   → IoU = 50/150 = 0.33
 ```
 
 IoU also penalizes passages that are much *larger* than the reference: a
@@ -176,7 +173,7 @@ uv run python -m src evaluate \
   data/output/search_results/UnansweredQuestions/dataset_code_public.json \
   data/datasets/AnsweredQuestions/dataset_code_public.json --k 10 --max_context_length 2000
 
-# answers for a whole dataset (~10 s per question on CPU)
+# answers for a whole dataset (~7 s per question on CPU, ~3.4 s with --model_dtype bfloat16)
 uv run python -m src answer_dataset \
   --student_search_results_path data/output/search_results/UnansweredQuestions/dataset_docs_public.json \
   --save_directory data/output/search_results_and_answer/UnansweredQuestions
@@ -357,12 +354,12 @@ code quote identifiers verbatim (`trust_remote_code`, `FP8_MAX`) or
 paraphrase them ("trust remote code"), so each identifier yields **its parts
 and itself**:
 
-```
-trust_remote_code  → trust, remote, code, trust_remote_code
-QKVParallelLinear  → qkv, parallel, linear, qkvparallellinear
-MultiModal_data    → multi, modal, data, multimodal_data
-__init__           → init, __init__
-```
+| Identifier | Tokens |
+|---|---|
+| `trust_remote_code` | `trust`, `remote`, `code`, `trust_remote_code` |
+| `QKVParallelLinear` | `qkv`, `parallel`, `linear`, `qkvparallellinear` |
+| `MultiModal_data` | `multi`, `modal`, `data`, `multimodal_data` |
+| `__init__` | `init`, `__init__` |
 
 Everything is lowercased; stopwords (*the, what, how, …*) and 1-character
 tokens are dropped (both configurable). Repeated words stay repeated — BM25
@@ -398,21 +395,83 @@ The idf uses the "+1" (Lucene) form: the textbook version turns **negative**
 for terms in more than half the chunks — `def` appears in most code chunks — which
 would *penalize* a chunk for containing it.
 
+### BM25 vs TF-IDF
+
+The subject allows either. TF-IDF is the older formula BM25 grew out of: a
+term's weight in a chunk is how often it occurs there times how rare it is
+overall. In its usual form, the term frequency is dampened with a logarithm:
+
+```math
+w(t, d) = \bigl(1 + \ln \operatorname{tf}(t, d)\bigr) \cdot \operatorname{idf}(t),
+\qquad
+\operatorname{idf}(t) = \ln \frac{N}{\operatorname{df}(t)}
+```
+
+A chunk's score is the sum over the question's terms, and the *cosine*
+variant divides by the length of the chunk's weight vector so that long
+chunks do not win just by containing more words:
+
+```math
+\operatorname{score}(d) = \sum_{t \in q} w(t, d) \cdot \operatorname{idf}(t)
+\qquad
+\operatorname{score}_{\cos}(d) = \frac{\sum_{t \in q} w(t, d) \cdot \operatorname{idf}(t)}
+{\sqrt{\sum_{t' \in d} w(t', d)^2}}
+```
+
+| | TF-IDF | BM25 |
+|---|---|---|
+| Repeated term | log grows forever: 1 → 1, 10 → 3.3, 100 → 5.6 | saturates at `k1 + 1` = 2.5 |
+| Long chunks | no correction, or cosine (divides by *all* the chunk's terms) | `b` blends the chunk's length against the average, adjustable 0–1 |
+| Common terms | `ln(N/df)` reaches 0 for a term in every chunk | "+1" form, always > 0 |
+| Tuning knobs | none | `k1`, `b` |
+
+The difference shows on the same index (same chunks, tokens and arrays;
+only the scoring formula changed):
+
+| Scoring | docs @1 | docs @5 | docs @10 | code @1 | code @5 | code @10 |
+|---|---|---|---|---|---|---|
+| **BM25** (used) | **0.640** | **0.870** | **0.890** | **0.616** | **0.879** | 0.919 |
+| TF-IDF | 0.470 | 0.800 | 0.850 | 0.576 | 0.869 | 0.919 |
+| TF-IDF, cosine | 0.480 | 0.760 | 0.820 | 0.455 | 0.808 | 0.919 |
+
+BM25 wins most at the top of the ranking (docs recall@1: 0.64 vs 0.47): its
+length normalization is gentler than cosine, which punishes a chunk for
+every other word it contains — and documentation chunks are long and
+varied. On code the gap is smaller, because identifiers are rare words that
+both formulas weight highly.
+
 ### Data structure: an inverted index in three arrays
 
 A chunks × vocabulary matrix would have 15k × 57k ≈ 900M cells, almost all
 zero. Instead, for every term, store which chunks contain it and how often —
 the *postings* — glued end to end (the CSR layout used by sparse matrices):
 
-```
-vocab     = {adapter: 0, config: 1, load: 2, lora: 3, model: 4}
-chunk_ids = [0,   2,   0, 1,   0, 2,   1]       which chunks
-tfs       = [1,   1,   1, 1,   2, 1,   1]       how often
-indptr    = [0,   1,   2,      4,      6,   7]   where each term's postings start
-            adapter config load  lora   model
-```
+Example with three chunks:
 
-Postings of term *t* are `chunk_ids[indptr[t]:indptr[t+1]]`. Scoring one
+| Chunk | Term counts |
+|---|---|
+| 0 | `lora` × 2, `adapter` × 1, `load` × 1 |
+| 1 | `load` × 1, `model` × 1 |
+| 2 | `lora` × 1, `config` × 1 |
+
+The vocabulary is sorted: `adapter` = 0, `config` = 1, `load` = 2,
+`lora` = 3, `model` = 4. The postings, grouped by term:
+
+| Position | 0 | 1 | 2 | 3 | 4 | 5 | 6 |
+|---|---|---|---|---|---|---|---|
+| *(term)* | *adapter* | *config* | *load* | *load* | *lora* | *lora* | *model* |
+| `chunk_ids` — which chunk | 0 | 2 | 0 | 1 | 0 | 2 | 1 |
+| `tfs` — how often | 1 | 1 | 1 | 1 | 2 | 1 | 1 |
+
+The term row is only for reading; it is not stored. `indptr` says where
+each term's postings start (the last entry is the end):
+
+| Term (id) | adapter (0) | config (1) | load (2) | lora (3) | model (4) | *end* |
+|---|---|---|---|---|---|---|
+| `indptr` | 0 | 1 | 2 | 4 | 6 | 7 |
+
+Postings of term *t* are `chunk_ids[indptr[t]:indptr[t+1]]`. For `lora`:
+`indptr[3]:indptr[4]` = 4:6 → chunks 0 and 2, with counts 2 and 1. Scoring one
 question is, per query term, one array slice plus one vectorized numpy
 expression added into a score array; `np.argpartition` then picks the top k
 without sorting all chunks. 200 questions take well under a second.
@@ -442,10 +501,44 @@ answer."*; answer in 1–4 sentences; copy identifiers, flags, endpoints and
 defaults exactly; cite the source number. With no retrieved sources the
 model is not even loaded — the fixed sentence is returned directly.
 
-Measured on this machine (8 CPU threads): model load ≈ 3 s, ≈ 8 new
-tokens/s; a 540-token prompt takes 16 s for 128 new tokens, a 3,145-token
-prompt 32 s. That is why the context has a budget: speed, and a small model
-answers better from a few focused sources than from ten.
+Two settings make generation faster without changing what it does:
+
+- **`--model_dtype bfloat16`** loads the weights in 16-bit instead of
+  32-bit. Writing each token means reading all 0.6 B weights from memory,
+  so half the bytes is nearly twice the speed — on CPUs with native bf16
+  (AVX-512 BF16 or AMX). Others emulate it and can get *slower*, so the
+  default stays `float32`. Answers are the same or differ by a few words.
+- **Prompt lookup decoding** (`prompt_lookup_tokens = 10`, on by default):
+  answers copy a lot from the sources — names, paths, default values. The
+  model guesses that the next tokens repeat a phrase from the prompt and
+  checks up to 10 of them in one forward pass instead of one pass per
+  token. With greedy decoding the output is exactly what it would have
+  been.
+
+Measured on this machine (Ryzen 7 8840HS, 8 cores), prompts ≈ 1,570
+tokens, answers ≈ 32 tokens:
+
+| Setting | Reading the prompt | Writing the answer | Per question |
+|---|---|---|---|
+| float32 | 2.8 s | 3.9 s (8 tok/s) | 6.7 s |
+| float32 + prompt lookup | | | 6.7 s |
+| bfloat16 | 1.5 s | 2.3 s (14 tok/s) | 3.7–3.9 s |
+| bfloat16 + prompt lookup | | | **3.1 s** |
+
+Loading the model adds ≈ 2 s per command. Reading the prompt is ≈ 40% of
+the time and grows with its length — one reason the sources have a token
+budget; the other is that a small model answers better from a few focused
+sources than from ten (see [Performance analysis](#performance-analysis)).
+
+Tried and rejected, all measured:
+
+- **Batching** several questions per `generate` call: 7.0 → 13.0 s per
+  question. On CPU, reading 4 long prompts at once is no faster than one by
+  one, and padding them to equal length adds work.
+- **16 threads** instead of 8: slower (6.7 → 8.4 s); the extra hardware
+  threads share cores with the first 8.
+- **int8 dynamic quantization:** slower (13 s) and broke the answers —
+  file paths, rambling, even replies in Chinese.
 
 ---
 
@@ -509,7 +602,7 @@ The generator adds retrieved sources to the prompt, best first, until
 the same retrieval results; "refusal" = the model replied *"The provided
 sources do not contain the answer."*
 
-| `max_context_tokens` | docs refusals | code refusals | seconds / question |
+| `max_context_tokens` | docs refusals | code refusals | seconds / question (float32, measured before prompt lookup) |
 |---|---|---|---|
 | **1,500** (default) | 13 | **24** | ≈ 11 |
 | 2,500 | 13 | 30 | ≈ 12–14 |
@@ -530,8 +623,8 @@ budget stays at 1,500 tokens.
 |---|---|---|
 | `index` (whole corpus) | ≈ 4 s | 5 min |
 | `search_dataset` (100 questions, incl. loading the index) | ≈ 0.3 s | 90 s for 200 |
-| `answer` (one question, k = 3, incl. model load) | ≈ 10 s | — |
-| `answer_dataset` (100 questions) | ≈ 15–25 min on CPU | — |
+| `answer` (one question, k = 3, incl. model load) | ≈ 9.7 s; 6.1 s with bfloat16 | — |
+| `answer_dataset` (100 questions) | ≈ 12 min; ≈ 6 min with bfloat16 (7.1 / 3.4 s per question) | — |
 
 ---
 
@@ -541,7 +634,8 @@ budget stays at 1,500 tokens.
   saturation and length normalization — both matter here: code repeats
   `self.lora_config` dozens of times, and chunks range from 15 to 2000
   characters. It is the standard lexical baseline (Lucene/Elasticsearch
-  default) and costs nothing extra.
+  default), costs nothing extra, and measured better on both sets (docs
+  recall@5 0.87 vs 0.80 — see [BM25 vs TF-IDF](#bm25-vs-tf-idf)).
 - **Hand-written inverted index on numpy** (CSR arrays) instead of a
   library: ~100 lines, every part explainable, milliseconds per query.
 - **Offsets, not text, in the index.** Smaller files, and answers always
@@ -564,7 +658,7 @@ budget stays at 1,500 tokens.
 - **CPU-only PyTorch** (uv `pytorch-cpu` index): the install shrinks from
   5.4 GB to under 1 GB on a machine without a GPU.
 - **Greedy decoding, thinking off, token budget** for generation:
-  deterministic answers, ~10 s per question, focused context.
+  deterministic answers, ~7 s per question (float32), focused context.
 - **Never a traceback:** expected failures raise one `CliError` type,
   printed as one line; a last-resort handler catches anything else.
 
@@ -678,7 +772,20 @@ then moved into `src/` with tests. In order:
 9. **Python chunker** — `ast` sections, big classes cut at methods, packing
    — code recall@5 0.81 → 0.88.
 10. **Generator** — Qwen3 prompt, token budget, grounded answers.
-11. **Planned: bonuses** — semantic embeddings (MiniLM), hybrid ranking,
+11. **Edge-case sweep** — 64 odd inputs over every command; every failure
+    became a one-line error (see [Rejected input](#rejected-input)).
+12. **Memory optimization** — interned `Counter` per chunk instead of token
+    lists, `CorpusLoader.load` as a generator (the progress bar now tracks
+    real indexing work), CSR arrays built directly in numpy, `int32`
+    arrays and the vocabulary saved as one UTF-8 string. Indexing peak
+    318 → 99 MB, `bm25.npz` 42 → 10.8 MB, `search` 0.37 → 0.23 s; recall and
+    the saved index unchanged (see
+    [Memory during indexing](#memory-during-indexing)).
+13. **Generation speed** — `--model_dtype bfloat16` (≈ 1.8× faster on CPUs
+    with native bf16) and prompt lookup decoding (identical output, ≈ 20%
+    faster with bf16): 6.7 → 3.1 s per question on this machine. Batching,
+    16 threads and int8 quantization were measured and rejected.
+14. **Planned: bonuses** — semantic embeddings (MiniLM), hybrid ranking,
     caching of index and query/answer results, a local HTTP API (FastAPI);
     incremental indexing undecided.
 
@@ -700,14 +807,30 @@ then moved into `src/` with tests. In order:
 - https://www.youtube.com/watch?v=Ub3GoFaUcds&list=PLoROMvodv4rOCXd21gf0CF4xr35yINeOy
 - https://www.youtube.com/watch?v=hiJcEaiuw_E
 - https://www.youtube.com/watch?v=ruBm9WywevM
-- 42 Slack (42born2code) — discussions with peers.
+- 42 Slack (42born2code) and discussions with peers.
 
 **Tools**
 
 - Python `ast` module — https://docs.python.org/3/library/ast.html
+- Python `re` module and the Regular Expression HOWTO — `\w+` words and the
+  lookarounds that split CamelCase in `Tokenizer`.
+  https://docs.python.org/3/library/re.html,
+  https://docs.python.org/3/howto/regex.html; regex101 for testing patterns
+  interactively — https://regex101.com/
+- Python `collections.Counter` — term counts per chunk for BM25.
+  https://docs.python.org/3/library/collections.html#collections.Counter
+- `sys.intern` — one shared copy of each token string while indexing.
+  https://docs.python.org/3/library/sys.html#sys.intern
 - numpy — https://numpy.org/doc/
-- Hugging Face transformers, chat templates —
-  https://huggingface.co/docs/transformers/chat_templating
+- Hugging Face transformers:
+  - overview (`AutoTokenizer`, `AutoModelForCausalLM`) —
+    https://huggingface.co/docs/transformers/index
+  - chat templates (`apply_chat_template`) —
+    https://huggingface.co/docs/transformers/chat_templating
+  - generation strategies (greedy decoding, prompt lookup decoding) —
+    https://huggingface.co/docs/transformers/generation_strategies
+  - `generate()` parameters reference —
+    https://huggingface.co/docs/transformers/main_classes/text_generation
 - Qwen3-0.6B model card — https://huggingface.co/Qwen/Qwen3-0.6B
 - Python Fire, pydantic, uv documentation.
 

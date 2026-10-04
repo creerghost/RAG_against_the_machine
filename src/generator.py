@@ -12,12 +12,15 @@ from .models import MinimalSource
 class Generator:
     """Wraps the LLM: loads it once, builds prompts, generates answers."""
     def __init__(self, config: RagConfig) -> None:
-        """Load the tokenizer and weights of ``config.model_name``."""
+        """Load the tokenizer and weights of ``config.model_name``.
+
+        Weights use ``config.model_dtype`` (float32 or bfloat16).
+        """
         self.config = config
         self.tokenizer = AutoTokenizer.from_pretrained(config.model_name)
         # Any: transformers' stubs reject generate() on the Auto* type
         self.model: Any = AutoModelForCausalLM.from_pretrained(
-            config.model_name, dtype=torch.float32)
+            config.model_name, dtype=getattr(torch, config.model_dtype))
 
     def _n_tokens(self, text: str) -> int:
         """Return how many model tokens ``text`` takes."""
@@ -61,10 +64,11 @@ class Generator:
         if not isinstance(inputs, BatchEncoding):  # narrows the type
             raise TypeError("chat template did not return a BatchEncoding")
         input_len = inputs["input_ids"].shape[1]
+        lookup = self.config.prompt_lookup_tokens or None  # 0: plain decoding
         with torch.inference_mode():
             out = self.model.generate(
                 **inputs, max_new_tokens=self.config.max_new_tokens,
-                do_sample=False)
+                do_sample=False, prompt_lookup_num_tokens=lookup)
         reply = self.tokenizer.decode(out[0][input_len:],
                                       skip_special_tokens=True)
         return str(reply).strip()

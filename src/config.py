@@ -55,10 +55,17 @@ class RagConfig(BaseModel):
     # (moulinette rule). Used in: evaluate.py (via cli.py).
     min_iou: float = Field(default=0.05, ge=0, le=1)
     # Token budget for the numbered sources in a prompt; lower is faster
-    # (~8 new tok/s on CPU). Used in: generator.py.
+    # (reading the prompt is ~40% of generation time). Used in:
+    # generator.py.
     max_context_tokens: int = Field(default=1500, ge=1)
     # Upper bound on answer length in tokens. Used in: generator.py.
     max_new_tokens: int = Field(default=200, ge=1)
+    # Prompt lookup decoding: the model drafts up to this many next tokens by
+    # matching the end of its answer against the prompt (answers copy names
+    # from the sources) and verifies them in one pass. Greedy output is
+    # unchanged; ~20% faster with bfloat16. 0 disables. Used in:
+    # generator.py.
+    prompt_lookup_tokens: int = Field(default=10, ge=0)
     # Reply when there is nothing to answer from. Used in: generator.py.
     no_answer: str = "The provided sources do not contain the answer."
     # System message: grounding rules for the answer model. Used in:
