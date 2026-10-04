@@ -15,8 +15,8 @@ from .config import RagConfig
 from .evaluate import recall_at_k
 from .index import build_index
 from .io_utils import CliError, load_model, save_model
-from .models import (MinimalAnswer, MinimalSearchResults, MinimalSource,
-                     RagDataset, StudentSearchResults,
+from .models import (AnsweredQuestion, MinimalAnswer, MinimalSearchResults,
+                     MinimalSource, RagDataset, StudentSearchResults,
                      StudentSearchResultsAndAnswer)
 from .retriever import Retriever
 
@@ -75,6 +75,9 @@ class RagCli:
         except FileNotFoundError as e:
             raise CliError(f"No index in {processed} ({e}). "
                            "Run the 'index' command first.") from e
+        except (OSError, ValueError, KeyError) as e:  # corrupt index files
+            raise CliError(f"Index in {processed} is unreadable ({e}). "
+                           "Run the 'index' command again.") from e
 
     def _k(self, k: Any) -> int:
         """Return a validated ``k``, or the config default when omitted."""
@@ -89,7 +92,10 @@ class RagCli:
             cfg = cfg.model_copy(update={"max_chunk_size": size})
         if not Path(cfg.raw_dir).is_dir():
             raise CliError(f"Corpus directory not found: {cfg.raw_dir}")
-        n_chunks = build_index(cfg)
+        try:
+            n_chunks = build_index(cfg)
+        except PermissionError as e:
+            raise CliError(f"Cannot write the index: {e}") from e
         print(f"Ingestion complete! Indexed {n_chunks} chunks under "
               f"{cfg.processed_dir}/")
 
@@ -104,6 +110,9 @@ class RagCli:
         src = _as_path(dataset_path, "dataset_path")
         out_dir = _as_path(save_directory, "save_directory")
         k = self._k(k)
+        if (out_dir / src.name).resolve() == src.resolve():
+            raise CliError(f"--save_directory {out_dir} would overwrite the "
+                           "dataset itself; choose another directory")
         dataset = load_model(src, RagDataset)
         retriever = self._retriever()
         results: list[MinimalSearchResults] = []
@@ -163,6 +172,10 @@ class RagCli:
         results = load_model(results_path, StudentSearchResults)
         dataset = load_model(_as_path(dataset_path, "dataset_path"),
                              RagDataset)
+        if not any(isinstance(q, AnsweredQuestion) and q.sources
+                   for q in dataset.rag_questions):
+            raise CliError(f"{dataset_path} has no reference sources; use "
+                           "an AnsweredQuestions dataset as ground truth")
         recalls = recall_at_k(results, dataset, self.config.eval_ks,
                               self.config.min_iou)
         print(" ".join(f"Recall@{k}: {r:.3f}" for k, r in recalls.items()))
@@ -177,6 +190,10 @@ def main() -> None:
         sys.exit(1)
     except NotImplementedError as e:
         print(f"Error: not implemented yet: {e}", file=sys.stderr)
+        sys.exit(1)
+    except (MemoryError, RecursionError):  # Fire parsing a huge argument
+        print("Error: an argument is too long or too complex to parse",
+              file=sys.stderr)
         sys.exit(1)
     except KeyboardInterrupt:
         print("Interrupted.", file=sys.stderr)

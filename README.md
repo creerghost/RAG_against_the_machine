@@ -15,10 +15,11 @@ vector database.
 ## Table of contents
 
 1. [Description](#description)
-    - [RAG in one minute](#rag-in-five-minutes)
+    - [RAG in one minute](#rag-in-one-minute)
     - [What this project builds](#what-this-project-builds)
 2. [Instructions](#instructions)
 3. [Example usage](#example-usage)
+    - [Rejected input](#rejected-input)
 4. [System architecture](#system-architecture)
 5. [Chunking strategy](#chunking-strategy)
 6. [Retrieval method](#retrieval-method)
@@ -174,15 +175,49 @@ uv run python -m src answer_dataset \
   --save_directory data/output/search_results_and_answer/UnansweredQuestions
 ```
 
-Bad input never produces a traceback — every failure is one line:
+### Rejected input
 
-```
-search ""                → Error: --query must not be empty
-search hi --k 0          → Error: --k must be >= 1, got 0
-index --max_chunk_size 5000 → Error: --max_chunk_size must be <= 2000, got 5000
---processed_dir /nope search hi → Error: No index in /nope (...). Run the 'index' command first.
-search_dataset --dataset_path broken.json ... → Error: Malformed JSON in broken.json: ...
-```
+Invalid input never produces a traceback: the command prints one `Error: …`
+line and exits with code 1 (Fire's own usage errors exit with 2). Checked with
+a sweep of 64 odd inputs over every command.
+
+| Input | Rejected when | Message |
+|---|---|---|
+| `query` (`search`, `answer`) | missing, empty or only whitespace | `--query is required` / `--query must not be empty` |
+| `--k` | not an integer (`2.5`, `abc`, `True`) or < 1 | `--k must be an integer, got …` / `--k must be >= 1, got 0` |
+| `--max_chunk_size` | not an integer, < 1 or > 2000 (grader limit) | `--max_chunk_size must be <= 2000, got 5000` |
+| `--dataset_path`, `--student_search_results_path` | missing, a directory, unreadable, not UTF-8 | `File not found: …` / `Cannot read …` |
+| | empty or malformed JSON | `Malformed JSON in …` |
+| | valid JSON with the wrong structure (e.g. a results file where a dataset is expected) | `… is not a valid RagDataset:` + field errors |
+| `--save_directory` | missing, is a file, or not writable | `--save_directory is required` / `Cannot write …` |
+| | would overwrite the input dataset itself | `… would overwrite the dataset itself; choose another directory` |
+| `evaluate --dataset_path` | has no reference sources (an `UnansweredQuestions` file) | `… has no reference sources; use an AnsweredQuestions dataset` |
+| `--raw_dir` (`index`) | missing or not a directory | `Corpus directory not found: …` |
+| `--processed_dir` | no index yet | `No index in … Run the 'index' command first.` |
+| | corrupt index files | `Index in … is unreadable (…). Run the 'index' command again.` |
+| | not writable (`index`) | `Cannot write the index: …` |
+| any argument | too long or complex for Fire's parser (e.g. a 40 kB query) | `an argument is too long or too complex to parse` |
+| command | unknown | Fire prints usage (exit code 2) |
+
+Accepted on purpose, with a defined result:
+
+- **Nonsense or stopword-only queries** (`"???"`, `"the what is"`) →
+  `No relevant source found.`; `answer` replies *"The provided sources do not
+  contain the answer."* without loading the model.
+- **Non-English or emoji queries** — searched normally (only tokens present
+  in the corpus can match).
+- **Numbers or booleans as queries** (`search 42`) — treated as text.
+- **`--k` larger than the number of matches** — returns the matches there are.
+- **Datasets** with no questions, blank questions, missing `question_id`
+  (a UUID is generated), duplicate ids or extra fields — processed; blank
+  questions get no sources.
+- **Search results** pointing to missing files or out-of-range offsets
+  (`answer_dataset`) — those sources are skipped.
+- **Corpus files** that are empty, not UTF-8, or Python with syntax errors —
+  skipped with a warning or chunked as plain text; an empty corpus indexes
+  0 chunks.
+- **Ctrl-C** — `Interrupted.`, exit code 130.
+
 
 ---
 
@@ -460,6 +495,28 @@ differences stay within a few questions; 2000 is best or tied on recall@5
 for both sets and gives the generator the most context per source, so it
 stays the default.
 
+### Effect of the context budget on answers
+
+The generator adds retrieved sources to the prompt, best first, until
+`max_context_tokens` is used up. Both public sets were answered twice with
+the same retrieval results; "refusal" = the model replied *"The provided
+sources do not contain the answer."*
+
+| `max_context_tokens` | docs refusals | code refusals | seconds / question |
+|---|---|---|---|
+| **1,500** (default) | 13 | **24** | ≈ 11 |
+| 2,500 | 13 | 30 | ≈ 12–14 |
+
+More context helped some questions — e.g. the default `cudagraph_support`
+of `TritonAttentionMetadataBuilder` (`AttentionCGSupport.NEVER`) was in the
+4th source, outside the smaller budget — but hurt just as many: with 4–5
+dense code chunks in the prompt, the 0.6B model gave up more often, even on
+questions it answered correctly with less context (code: 6 refusals turned
+into answers, 12 answers turned into refusals). About three quarters of the
+answers changed wording without a clear quality trend, and every question got
+slower. A small model answers better from a few focused sources, so the
+budget stays at 1,500 tokens.
+
 ### Speed
 
 | Step | Measured | Limit |
@@ -556,8 +613,9 @@ then moved into `src/` with tests. In order:
 9. **Python chunker** — `ast` sections, big classes cut at methods, packing
    — code recall@5 0.81 → 0.88.
 10. **Generator** — Qwen3 prompt, token budget, grounded answers.
-11. **Planned: bonuses** — semantic embeddings, hybrid ranking, incremental
-    indexing, caching, HTTP API (FastAPI).
+11. **Planned: bonuses** — semantic embeddings (MiniLM), hybrid ranking,
+    caching of index and query/answer results, a local HTTP API (FastAPI);
+    incremental indexing undecided.
 
 ---
 
