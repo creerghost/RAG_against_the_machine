@@ -25,14 +25,14 @@ def test_filters_sorts_and_skips(tmp_path: Path) -> None:
     (tmp_path / "a" / "empty.py").write_text("")
     (tmp_path / "a" / "blank.md").write_text("\n \n")
     (tmp_path / "a" / "bad.txt").write_bytes(b"\xff\xfe bad")
-    pairs = make_loader(tmp_path).load()
+    pairs = list(make_loader(tmp_path).load())
     root = str(tmp_path)
     assert pairs == [(f"{root}/a-b/x.md", "doc"), (f"{root}/a/y.PY", "code")]
 
 
 def test_missing_root(tmp_path: Path) -> None:
     """A missing raw_dir gives no files instead of an error."""
-    assert make_loader(tmp_path / "nope").load() == []
+    assert list(make_loader(tmp_path / "nope").load()) == []
 
 
 def test_read_failures(tmp_path: Path) -> None:

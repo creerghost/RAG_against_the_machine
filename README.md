@@ -137,7 +137,7 @@ Makefile targets: `install`, `run` (`make run ARGS="search 'lora adapter'"`),
 
 ```bash
 uv run python -m src index
-# Indexing: 100%|██████████| 1847/1847 [00:04<00:00, 461.55file/s]
+# Indexing: 100%|██████████| 1969/1969 [00:04<00:00, 478.77file/s]
 # Ingestion complete! Indexed 15559 chunks under data/processed/
 
 uv run python -m src search "How to load a LoRA adapter" --k 3
@@ -601,6 +601,7 @@ max RSS (everything, including ≈ 120 MB for Python, numpy and pydantic themsel
 |---|---|---|---|
 | Start: one token list per chunk | 318 MB | 435 MB | 4.7–4.9 s |
 | Interned `Counter` per chunk | 166 MB | 287 MB | 4.6–4.8 s |
+| `CorpusLoader.load` as a generator | 166 MB | 272 MB | 4.6–4.8 s |
 
 - **Duplicate strings.** `token.lower()` creates a new string every time,
   so a common word like `model` existed as tens of thousands of separate
@@ -610,6 +611,12 @@ max RSS (everything, including ≈ 120 MB for Python, numpy and pydantic themsel
   a `Counter` per chunk instead of the token list drops the repeats, and
   `BM25Index.build` no longer holds the token lists and the counters at
   the same time. Recall is unchanged (same arrays, same index).
+- **All file texts loaded up front.** `load()` returned the whole corpus
+  (36 MB) as a list before chunking began. As a generator it reads one file
+  at a time, and the progress bar now advances with the real work. The
+  Python peak stays the same because it happens later, in
+  `BM25Index.build`, when the list was already freed; the process peak
+  still drops by 15 MB.
 - **What did not help:** turning `return` into `yield` in the chunkers,
   the tokenizer or the retriever. Their lists are small and short-lived, and
   a generator spreads the same work out rather than removing it.

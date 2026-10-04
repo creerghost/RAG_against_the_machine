@@ -4,8 +4,6 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from tqdm import tqdm
-
 from .config import RagConfig
 from .loader import CorpusLoader
 from .bm25 import BM25Index
@@ -24,7 +22,7 @@ def build_index(config: RagConfig) -> int:
     chunks: list[Chunk] = []
     counters: list[Counter[str]] = []
     tokenizer = Tokenizer(config.stopwords, config.min_token_length)
-    for path, text in tqdm(loader.load(), desc="Indexing", unit="file"):
+    for path, text in loader.load():
         # this will create around 1800 tiny objects,
         # which are negligible to cache
         chunker = chunker_for(path, config)

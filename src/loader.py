@@ -2,7 +2,9 @@
 
 import sys
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Iterable, Iterator, Optional
+
+from tqdm import tqdm
 
 
 class CorpusLoader:
@@ -33,12 +35,12 @@ class CorpusLoader:
             print(f"Warning: skipping {path}: {e}", file=sys.stderr)
             return None
 
-    def load(self) -> list[tuple[str, str]]:
-        """Return ``(path, text)`` for every readable, non-blank file."""
-        result: list[tuple[str, str]] = []
-        for path in self.paths():
+    def load(self) -> Iterator[tuple[str, str]]:
+        """Yield ``(path, text)`` for every readable, non-blank file.
+
+        Lazy: only one file's text is in memory while the caller uses it.
+        """
+        for path in tqdm(self.paths(), desc="Indexing", unit="file"):
             text = self.read(path)
-            if text is None or not text.strip():
-                continue
-            result.append((path, text))
-        return result
+            if text is not None and text.strip():
+                yield path, text
