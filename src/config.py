@@ -4,6 +4,9 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+# Ranker names accepted by --mode and ranking.ranker_for.
+RankMode = Literal["lexical", "semantic", "hybrid"]
+
 
 class RagConfig(BaseModel):
     """Project settings; CLI flags override the defaults."""
@@ -51,6 +54,14 @@ class RagConfig(BaseModel):
     # BM25 length normalization, 0 (none) to 1 (full). Used in: bm25.py
     # (via index.py).
     bm25_b: float = Field(default=0.75, ge=0, le=1)
+    # Which ranker scores chunks: BM25 only, embeddings only (needs
+    # ``index --semantic True``), or both fused by RRF. Used in: cli.py,
+    # ranking/__init__.py.
+    mode: RankMode = "lexical"
+    # Reciprocal rank fusion constant: score = sum of 1 / (rrf_k + rank);
+    # larger values flatten the gap between top ranks. Used in:
+    # ranking/__init__.py (via HybridRanker).
+    rrf_k: int = Field(default=60, ge=1)
     # Minimum IoU for a retrieved span to count as finding a reference
     # (moulinette rule). Used in: evaluate.py (via cli.py).
     min_iou: float = Field(default=0.05, ge=0, le=1)
