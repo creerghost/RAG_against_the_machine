@@ -115,7 +115,7 @@ Every command is `uv run python -m src <command> [options]`:
 
 | Command | What it does |
 |---|---|
-| `index [--max_chunk_size 2000]` | Chunk and index `data/raw/` into `data/processed/` |
+| `index [--max_chunk_size 2000] [--semantic]` | Chunk and index `data/raw/` into `data/processed/`; `--semantic` also embeds every chunk (bonus, see [Semantic search](#semantic-search-bonus)) |
 | `search "<query>" [--k 10]` | Print the top-k source locations for one question |
 | `search_dataset --dataset_path P --k K --save_directory D` | Search every question of a dataset, write results JSON |
 | `answer "<query>" [--k 10]` | Retrieve, then generate an answer with Qwen |
@@ -123,13 +123,15 @@ Every command is `uv run python -m src <command> [options]`:
 | `evaluate --student_search_results_path P --dataset_path D` | Print recall@1/3/5/10 against a ground-truth dataset |
 
 Global options go before the command: `--raw_dir`, `--processed_dir`,
-`--model_name`, `--model_dtype float32|bfloat16`. All defaults live in
+`--model_name`, `--model_dtype float32|bfloat16`,
+`--embedding_dtype float32|bfloat16`. All defaults live in
 `src/config.py`. `bfloat16` makes answering ≈ 1.8× faster on CPUs with
 native bf16 support (AVX-512 BF16 or AMX) but can be slower on others, so
 the default stays `float32`:
 
 ```bash
 uv run python -m src --model_dtype bfloat16 answer "How to load a LoRA adapter"
+uv run python -m src --embedding_dtype bfloat16 index --semantic   # ≈ 2.5 min instead of ≈ 4
 ```
 
 Makefile targets: `install`, `run` (`make run ARGS="search 'lora adapter'"`),
@@ -197,6 +199,9 @@ a sweep of 64 odd inputs over every command.
 | | would overwrite the input dataset itself | `… would overwrite the dataset itself; choose another directory` |
 | `evaluate --dataset_path` | has no reference sources (an `UnansweredQuestions` file) | `… has no reference sources; use an AnsweredQuestions dataset` |
 | `--raw_dir` (`index`) | missing or not a directory | `Corpus directory not found: …` |
+| `--semantic` (`index`) | not `True`/`False` (Fire keeps lowercase `false` as a string) | `--semantic must be True or False, got 'false'` |
+| `--model_dtype`, `--embedding_dtype` | not `float32` or `bfloat16` | `--embedding_dtype: Input should be 'float32' or 'bfloat16'` |
+| `index --semantic` | embedding model not cached and not downloadable | `Cannot load sentence-transformers/all-MiniLM-L6-v2: …` |
 | `--processed_dir` | no index yet | `No index in … Run the 'index' command first.` |
 | | corrupt index files | `Index in … is unreadable (…). Run the 'index' command again.` |
 | | not writable (`index`) | `Cannot write the index: …` |
@@ -242,12 +247,16 @@ flowchart TD
         TOK1 --> BUILD["BM25Index.build"]
         BUILD --> NPZ[("processed/bm25.npz")]
         CH --> TABLE[("processed/chunks.json")]
+        CH -->|"--semantic"| EMB1["Embedder<br/>MiniLM, mean pooling"]
+        EMB1 --> NPY[("processed/embeddings.npy")]
     end
 
     subgraph QUERY["search / answer — per question"]
-        Q["question"] --> TOK2["Tokenizer<br/>same settings"]
-        TOK2 --> TOPK["BM25Index.top_k"]
-        TOPK -->|"chunk ids, best first"| MAP["ChunkTable[id]"]
+        Q["question"] --> RANK{"ranker_for(mode)"}
+        RANK -->|"lexical"| TOK2["LexicalRanker<br/>Tokenizer → BM25Index.top_k"]
+        RANK -->|"semantic"| COS["SemanticRanker<br/>Embedder → cosine → top_k_ids"]
+        TOK2 -->|"chunk ids, best first"| MAP["ChunkTable[id]"]
+        COS -->|"chunk ids, best first"| MAP
         MAP --> SRC["MinimalSource<br/>file_path, first/last index"]
         SRC --> OUT["search_dataset JSON"]
         OUT --> EVAL["evaluate / moulinette"]
@@ -256,7 +265,8 @@ flowchart TD
         QWEN --> ANS["answer"]
     end
 
-    NPZ -.->|"load"| TOPK
+    NPZ -.->|"load"| TOK2
+    NPY -.->|"load"| COS
     TABLE -.->|"load"| MAP
 ```
 
@@ -269,14 +279,17 @@ flowchart TD
 | `chunking/` | `Chunker` base class + `PythonChunker`, `MarkdownChunker`, `TextChunker`; `chunker_for()` picks one per file |
 | `tokenizer.py` | `Tokenizer` — identifier-aware text → tokens |
 | `bm25.py` | `BM25Index` — inverted index as numpy arrays; build, score, top-k, save/load |
-| `index.py` | `build_index()` — wires loader → chunkers → tokenizer → BM25, saves both files |
-| `retriever.py` | `Retriever` — loads the index once, `search(query, k)` → sources |
+| `top_k.py` | `top_k_ids()` — positions of the k highest scores (argpartition), shared by BM25 and semantic search |
+| `embedder.py` | `Embedder` — MiniLM via transformers: texts → unit-length 384-dim vectors (mean pooling) |
+| `ranking/` | `Ranker` base class + `LexicalRanker`, `SemanticRanker`, `HybridRanker`; `ranker_for(mode)` picks one |
+| `index.py` | `build_index()` — wires loader → chunkers → tokenizer → BM25 (→ embedder), saves the files |
+| `retriever.py` | `Retriever` — gets a ranker once, `search(query, k)` → sources |
 | `generator.py` | `Generator` — loads Qwen once, builds the prompt, generates |
 | `evaluate.py` | `recall_at_k()` — the grader's metric, reimplemented |
 
 **Chunk ids are the glue.** Chunk number *i* is the *i*-th entry of
-`chunks.json` *and* the *i*-th document BM25 knows about. BM25 only ever
-returns numbers; `ChunkTable` turns them back into file paths and character
+`chunks.json`, the *i*-th document BM25 knows about *and* row *i* of
+`embeddings.npy`. Rankers only ever return numbers; `ChunkTable` turns them back into file paths and character
 ranges. The index stores **offsets, not text** — text is re-read from the
 corpus only when the generator needs it, so the index stays small and can
 never disagree with the files.
@@ -479,6 +492,95 @@ without sorting all chunks. 200 questions take well under a second.
 Only raw counts are saved; `idf` and `avgdl` are recomputed on load, so they
 can never go stale.
 
+### Semantic search (bonus)
+
+BM25 only matches **words that literally appear** in both the question and
+the chunk. "How do I shrink memory usage?" never matches a chunk that says
+"reduce `gpu_memory_utilization`". Semantic search compares **meanings**
+instead: a small neural network turns any text into an *embedding* — a list
+of 384 numbers — trained so that texts about the same thing get vectors that
+point in the same direction.
+
+```
+"load a LoRA adapter"   → [ 0.04, -0.11, 0.07, … ]  ┐ cosine 0.93: same meaning,
+"LoRA adapter loading"  → [ 0.05, -0.09, 0.06, … ]  ┘ different words
+"pip install vllm"      → [-0.08,  0.02, 0.13, … ]    cosine 0.02 with both
+```
+
+**Model:** [`sentence-transformers/all-MiniLM-L6-v2`](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2)
+— 6 transformer layers, 22 M parameters (≈ 90 MB), 384-dimensional output,
+trained on sentence pairs. It is loaded with plain `transformers`
+(`AutoTokenizer` + `AutoModel`); pooling and search are written by hand, no
+`sentence-transformers` or vector-database library.
+
+**From text to one vector** (`Embedder.embed`):
+
+1. The model's own tokenizer splits the text into sub-word tokens, adds
+   `[CLS]`/`[SEP]`, cuts at 256 tokens (`embedding_max_length`) and pads the
+   batch to equal length. Raw text goes in — no lowercasing or stopword
+   removal (that is BM25's tokenizer, not this one) and no chat template
+   (that is for chat models; MiniLM only encodes).
+2. The model outputs one vector **per token**, $h_1, \dots, h_n$.
+3. **Mean pooling** averages them into one vector, skipping padding with the
+   attention mask $m_i$ (1 = real token, 0 = padding):
+
+```math
+v = \frac{\sum_{i=1}^{n} m_i \, h_i}{\max\left(\sum_{i=1}^{n} m_i,\ \varepsilon\right)}
+```
+
+4. **L2 normalization** scales it to length 1:
+
+```math
+e = \frac{v}{\lVert v \rVert_2}, \qquad \lVert v \rVert_2 = \sqrt{\textstyle\sum_j v_j^2}
+```
+
+**Scoring.** Similarity between question *q* and chunk *d* is the cosine of
+the angle between their vectors. Because every vector has length 1, the
+cosine is just the dot product — and for all chunks at once, one
+matrix-vector product:
+
+```math
+\cos(q, d) = \frac{q \cdot d}{\lVert q \rVert \, \lVert d \rVert} = q \cdot d
+\qquad\Rightarrow\qquad
+\text{scores} = E \, q, \quad E \in \mathbb{R}^{15559 \times 384}
+```
+
+`top_k_ids` then takes the k best with `np.argpartition` (O(n)) and sorts
+only those k — the same helper BM25 uses. Unlike BM25, every chunk gets a
+score (cosine ranges from −1 to 1), so there is no "score > 0" filter.
+
+**Storage.** `index --semantic` embeds every chunk once and saves
+`processed/embeddings.npy`: a 15,559 × 384 `float32` matrix (23.9 MB), row
+*i* = chunk *i*. A plain `index` deletes it, because new chunks would no
+longer match the old rows.
+
+**Rankers.** Each retrieval strategy is a `Ranker` with one method,
+`rank(query, k) → [(chunk_id, score), …]` (**Strategy** pattern).
+Dependencies come in through the constructor: `LexicalRanker(bm25,
+tokenizer)`, `SemanticRanker(embedder, vectors)` — so tests can pass a tiny
+index or a fake embedder. `ranker_for(mode, config)` is the one place that
+loads files and picks the ranker; `Retriever` only maps chunk ids to
+sources. torch is imported only when a semantic ranker is built, so the
+default lexical `search` stays ≈ 0.2 s.
+
+**Result.** Semantic search alone is far weaker than BM25 here:
+
+| Ranker | docs @1 | @3 | @5 | @10 | code @1 | @3 | @5 | @10 |
+|---|---|---|---|---|---|---|---|---|
+| **BM25** (default) | **0.640** | **0.840** | **0.870** | **0.890** | **0.616** | **0.828** | **0.879** | **0.919** |
+| MiniLM | 0.420 | 0.540 | 0.600 | 0.700 | 0.172 | 0.273 | 0.354 | 0.475 |
+
+- **Truncation:** chunks are up to 2,000 characters (≈ 500 tokens), the
+  model reads the first 256.
+- **Code:** MiniLM was trained on English sentences. An identifier like
+  `load_lora_adapter` is exactly what BM25 matches perfectly and what an
+  embedding blurs into "something about loading".
+- **No title or path:** BM25 indexes them (+10 points on code); the
+  embeddings see only the chunk text.
+
+Its value is as a *second opinion* for hybrid ranking — finding chunks that
+BM25 misses because the wording differs.
+
 ---
 
 ## Answer generation
@@ -622,9 +724,38 @@ budget stays at 1,500 tokens.
 | Step | Measured | Limit |
 |---|---|---|
 | `index` (whole corpus) | ≈ 4 s | 5 min |
+| `index --semantic` (+ 15,559 chunks embedded) | ≈ 4 min; ≈ 2.5 min with `--embedding_dtype bfloat16` | 5 min |
+| `search_dataset`, semantic ranker (100 questions, incl. loading MiniLM) | ≈ 9 s | 90 s for 200 |
 | `search_dataset` (100 questions, incl. loading the index) | ≈ 0.3 s | 90 s for 200 |
 | `answer` (one question, k = 3, incl. model load) | ≈ 9.7 s; 6.1 s with bfloat16 | — |
 | `answer_dataset` (100 questions) | ≈ 12 min; ≈ 6 min with bfloat16 (7.1 / 3.4 s per question) | — |
+
+### Embedding speed
+
+The first working `Embedder` needed ≈ 275 s for the corpus — 92% of the
+5-minute indexing limit, before BM25. Measured on the first 1,000 chunks,
+then on the full corpus:
+
+| Change | 1,000 chunks | Whole corpus (15,559) |
+|---|---|---|
+| Batches of 32 in corpus order | 17.7 s | ≈ 275 s (estimated) |
+| + batches formed after sorting texts by length | 14.7 s | ≈ 229 s (estimated) |
+| + `--embedding_dtype bfloat16` | 7.6 s | **146 s** (measured) |
+
+- **Sorting by length.** A batch is padded to its longest text, so one
+  long chunk among 31 short ones makes the model process 32 long ones.
+  `embed` sorts the indices by text length (`np.argsort`), forms batches in
+  that order, and writes each result row back to its original position
+  (`result[order] = vectors_sorted`) — row *i* must stay chunk *i*. The
+  vectors are identical (max difference 2·10⁻⁷, float rounding). The gain
+  is modest because most chunks are long enough to hit the 256-token cut
+  anyway.
+- **bfloat16** halves the bytes read per weight, as for the answer model.
+  Each chunk's bf16 vector has cosine ≥ 0.9999 with its float32 vector, so
+  rankings do not change. Off by default for the same reason as
+  `--model_dtype`: CPUs without native bf16 can get slower.
+- **`torch.inference_mode()`** around the forward pass: no gradient
+  bookkeeping, less memory.
 
 ---
 
@@ -655,6 +786,17 @@ budget stays at 1,500 tokens.
 - **All tunables in `RagConfig`**, no module-level settings: paths, chunk
   size, separators, stopwords, BM25 `k1`/`b`, IoU threshold, token budget,
   prompt. Each field documents which files use it.
+- **Rankers as strategies with injected dependencies.** `Ranker` has one
+  method; lexical, semantic and hybrid ranking are interchangeable behind
+  it, and `ranker_for(mode)` is the only `if` on the mode. Constructors take
+  the objects they use (an index, a tokenizer, an embedder), not the whole
+  config — so each ranker can be tested with tiny hand-made inputs.
+- **Embeddings without `sentence-transformers`.** `AutoModel` +
+  hand-written mean pooling is ~15 lines and keeps the dependency list to
+  transformers + torch, already needed for Qwen.
+- **Semantic search is opt-in.** The default `index` and `search` never
+  import torch; `index --semantic` adds `embeddings.npy`. The mandatory
+  pipeline stays a 4-second index and sub-second search.
 - **CPU-only PyTorch** (uv `pytorch-cpu` index): the install shrinks from
   5.4 GB to under 1 GB on a machine without a GPU.
 - **Greedy decoding, thinking off, token budget** for generation:
@@ -688,6 +830,10 @@ budget stays at 1,500 tokens.
   sections, found by measuring instead of assuming.
 - **transformers' type hints** reject `generate()` on the auto-model type
   under `mypy`; the model attribute is typed `Any` with a comment.
+- **Stale embeddings.** Re-indexing with another `--max_chunk_size`
+  changes the chunk ids, but an old `embeddings.npy` would still load and
+  silently return wrong chunks. `index` now deletes it *before* embedding,
+  so even an interrupted run cannot leave a mismatched file.
 - **Making the small model behave:** Qwen3 "thinks" out loud by default;
   `enable_thinking=False` plus short, explicit rules and a fixed refusal
   sentence keep answers short and grounded.
@@ -785,8 +931,16 @@ then moved into `src/` with tests. In order:
     with native bf16) and prompt lookup decoding (identical output, ≈ 20%
     faster with bf16): 6.7 → 3.1 s per question on this machine. Batching,
     16 threads and int8 quantization were measured and rejected.
-14. **Planned: bonuses** — semantic embeddings (MiniLM), hybrid ranking,
-    caching of index and query/answer results, a local HTTP API (FastAPI);
+14. **Rankers** — `Ranker` base class, BM25 search moved into
+    `LexicalRanker`, `ranker_for(mode)` factory; `Retriever` only maps ids
+    to sources. Recall unchanged (0.870 / 0.879).
+15. **Bonus: semantic search** — `Embedder` (MiniLM, mean pooling, L2
+    normalization), `index --semantic` → `embeddings.npy`,
+    `SemanticRanker`, shared `top_k_ids`. Embedding time 275 → 146 s
+    (length-sorted batches, bfloat16). Alone it scores docs 0.60 / code 0.35
+    recall@5.
+16. **Planned: bonuses** — hybrid ranking (reciprocal rank fusion), caching
+    of index and query/answer results, a local HTTP API (FastAPI);
     incremental indexing undecided.
 
 ---
@@ -807,6 +961,7 @@ then moved into `src/` with tests. In order:
 - https://www.youtube.com/watch?v=Ub3GoFaUcds&list=PLoROMvodv4rOCXd21gf0CF4xr35yINeOy
 - https://www.youtube.com/watch?v=hiJcEaiuw_E
 - https://www.youtube.com/watch?v=ruBm9WywevM
+- https://www.youtube.com/watch?v=aircAruvnKk&list=PLZHQObOWTQDNU6R1_67000Dx_ZCJB-3pi
 - 42 Slack (42born2code) and discussions with peers.
 
 **Tools**
@@ -832,6 +987,11 @@ then moved into `src/` with tests. In order:
   - `generate()` parameters reference —
     https://huggingface.co/docs/transformers/main_classes/text_generation
 - Qwen3-0.6B model card — https://huggingface.co/Qwen/Qwen3-0.6B
+- all-MiniLM-L6-v2 model card (training data, 256-token limit, the mean
+  pooling recipe) —
+  https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2
+- `numpy.argpartition` — top-k without a full sort.
+  https://numpy.org/doc/stable/reference/generated/numpy.argpartition.html
 - Python Fire, pydantic, uv documentation.
 
 ### How AI was used
@@ -841,7 +1001,7 @@ logic was written and debugged by me, step by step, with the AI pointing at
 bugs rather than rewriting the code.
 
 - **Explanations:** RAG, BM25, IoU, recall vs precision, CSR/`indptr`,
-  `ast`, chat templates — asked and discussed before writing each part.
+  `ast`, chat templates, embeddings and mean pooling, rank fusion — asked and discussed before writing each part.
 - **Reviews:** every core piece (chunkers, loader, tokenizer, BM25, index,
   retriever, evaluate, generator) was checked by running it against edge
   cases; bugs were explained, I fixed most of them myself.
