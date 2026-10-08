@@ -64,6 +64,10 @@ class RagConfig(BaseModel):
     # Texts embedded per forward pass; higher is faster until memory runs
     # out. Used in: embedder.py (via index.py).
     embedding_batch_size: int = Field(default=32, ge=1)
+    # Weight precision of the embedder; bfloat16 is faster on CPUs with
+    # native bf16, like model_dtype. Used in: embedder.py (via index.py,
+    # ranking/__init__.py).
+    embedding_dtype: Literal["float32", "bfloat16"] = "float32"
     # Which ranker scores chunks: BM25 only, embeddings only (needs
     # ``index --semantic True``), or both fused by RRF. Used in: cli.py,
     # ranking/__init__.py.

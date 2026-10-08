@@ -62,10 +62,12 @@ class RagCli:
     def __init__(self, raw_dir: Optional[str] = None,
                  processed_dir: Optional[str] = None,
                  model_name: Optional[str] = None,
-                 model_dtype: Optional[str] = None) -> None:
+                 model_dtype: Optional[str] = None,
+                 embedding_dtype: Optional[str] = None) -> None:
         """Build the config; given flags override ``RagConfig`` defaults."""
         flags = {"raw_dir": raw_dir, "processed_dir": processed_dir,
-                 "model_name": model_name, "model_dtype": model_dtype}
+                 "model_name": model_name, "model_dtype": model_dtype,
+                 "embedding_dtype": embedding_dtype}
         overrides = {k: str(v) for k, v in flags.items() if v is not None}
         try:
             self.config = RagConfig.model_validate(overrides)
@@ -91,8 +93,14 @@ class RagCli:
         """Return a validated ``k``, or the config default when omitted."""
         return self.config.default_k if k is None else _as_positive_int(k, "k")
 
-    def index(self, max_chunk_size: Any = None) -> None:
-        """Chunk the corpus and build the index with ``max_chunk_size``."""
+    def index(self, max_chunk_size: Any = None, semantic: Any = False) -> None:
+        """Chunk the corpus and build the index with ``max_chunk_size``.
+
+        With ``--semantic True`` also embed every chunk (``embeddings.npy``).
+        """
+        if not isinstance(semantic, bool):
+            raise CliError(f"--semantic must be True or False, got "
+                           f"{semantic!r}")
         cfg = self.config
         if max_chunk_size is not None:
             size = _as_positive_int(max_chunk_size, "max_chunk_size",
@@ -101,10 +109,13 @@ class RagCli:
         if not Path(cfg.raw_dir).is_dir():
             raise CliError(f"Corpus directory not found: {cfg.raw_dir}")
         try:
-            n_chunks = build_index(cfg)
+            n_chunks = build_index(cfg, semantic)
         except PermissionError as e:
             raise CliError(f"Cannot write the index: {e}") from e
-        print(f"Ingestion complete! Indexed {n_chunks} chunks under "
+        except OSError as e:  # embedding model missing and not downloadable
+            raise CliError(f"Cannot load {cfg.embedding_model}: {e}") from e
+        extra = " with embeddings" if semantic else ""
+        print(f"Ingestion complete! Indexed {n_chunks} chunks{extra} under "
               f"{cfg.processed_dir}/")
 
     def search(self, query: Any = None, k: Any = None) -> None:
