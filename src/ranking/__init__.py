@@ -25,7 +25,10 @@ def ranker_for(mode: RankMode, config: RagConfig) -> Ranker:
     # imported here: they pull in torch, which lexical mode never needs.
     from .semantic_ranker import SemanticRanker
     from ..embedder import Embedder
-    semantic = SemanticRanker(Embedder(config),
+    name, max_len, batch_size = (config.embedding_model,
+                                 config.embedding_max_length,
+                                 config.embedding_batch_size)
+    semantic = SemanticRanker(Embedder(name, max_len, batch_size),
                               np.load(processed_dir / "embeddings.npy"))
     if mode == "semantic":
         return semantic

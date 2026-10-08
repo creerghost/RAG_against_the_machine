@@ -9,7 +9,7 @@ from .io_utils import load_model
 
 
 class Retriever:
-    """Loads the index once and answers top-k queries."""
+    """Loads the ranker and chunk table once and answers top-k queries."""
     def __init__(self, config: RagConfig) -> None:
         """Load the index from ``processed_dir``; FileNotFoundError if none."""
         processed_dir = Path(config.processed_dir)

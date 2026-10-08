@@ -8,5 +8,5 @@ class SemanticRanker(Ranker):
         self.embedder = embedder
         self.vectors = vectors
 
-    def rank(query: str, k: int) -> list[tuple[int, float]]:
+    def rank(self, query: str, k: int) -> list[tuple[int, float]]:
         pass

@@ -54,6 +54,16 @@ class RagConfig(BaseModel):
     # BM25 length normalization, 0 (none) to 1 (full). Used in: bm25.py
     # (via index.py).
     bm25_b: float = Field(default=0.75, ge=0, le=1)
+    # Hugging Face id of the sentence embedding model (loaded with plain
+    # transformers, 384-dim vectors). Used in: embedder.py (via index.py,
+    # ranking/__init__.py).
+    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    # Tokens per text fed to the embedder; longer chunks are truncated
+    # (MiniLM was trained on 256). Used in: embedder.py.
+    embedding_max_length: int = Field(default=256, ge=1)
+    # Texts embedded per forward pass; higher is faster until memory runs
+    # out. Used in: embedder.py (via index.py).
+    embedding_batch_size: int = Field(default=32, ge=1)
     # Which ranker scores chunks: BM25 only, embeddings only (needs
     # ``index --semantic True``), or both fused by RRF. Used in: cli.py,
     # ranking/__init__.py.
