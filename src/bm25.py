@@ -6,9 +6,9 @@ from pathlib import Path
 import numpy as np
 import numpy.typing as npt
 
-IntArray64 = npt.NDArray[np.int64]
+from .top_k import top_k_ids, FloatArray, IntArray64
+
 IntArray32 = npt.NDArray[np.int32]
-FloatArray = npt.NDArray[np.float64]
 
 
 class BM25Index:
@@ -85,11 +85,7 @@ class BM25Index:
         ids = np.flatnonzero(scores > 0)
         if len(ids) == 0 or k <= 0:
             return []
-        k = min(k, len(ids))
-        valid_scores = scores[ids]
-        top_k_idx = np.argpartition(valid_scores, -k)[-k:]
-        top_k_idx_sorted = top_k_idx[np.argsort(-valid_scores[top_k_idx])]
-        best = ids[top_k_idx_sorted]
+        best = ids[top_k_ids(scores[ids], k)]
         return [(int(c), float(scores[c])) for c in best]
 
     def save(self, path: str | Path) -> None:

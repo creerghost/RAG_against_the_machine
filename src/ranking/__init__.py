@@ -26,7 +26,7 @@ def ranker_for(mode: RankMode, config: RagConfig) -> Ranker:
     from .semantic_ranker import SemanticRanker
     from ..embedder import Embedder
     embedder = Embedder(config.embedding_model, config.embedding_max_length,
-                    config.embedding_batch_size, config.embedding_dtype)
+                        config.embedding_batch_size, config.embedding_dtype)
     semantic = SemanticRanker(embedder, np.load(
         processed_dir / "embeddings.npy"))
     if mode == "semantic":
