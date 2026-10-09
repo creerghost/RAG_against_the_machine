@@ -18,8 +18,8 @@ def ranker_for(mode: RankMode, config: RagConfig) -> Ranker:
         raise ValueError(f"unknown mode: {mode}")
     processed_dir = Path(config.processed_dir)
     tokenizer = Tokenizer(config.stopwords, config.min_token_length)
-    lexical = LexicalRanker(BM25Index.load(processed_dir / "bm25.npz"),
-                            tokenizer)
+    bm25 = BM25Index.load(processed_dir / "bm25.npz")
+    lexical = LexicalRanker(bm25, tokenizer)
     if mode == "lexical":
         return lexical
     # imported here: they pull in torch, which lexical mode never needs.
@@ -27,6 +27,10 @@ def ranker_for(mode: RankMode, config: RagConfig) -> Ranker:
     from ..embedder import Embedder
     # loaded before the model so a missing file fails without the wait
     vectors = np.load(processed_dir / "embeddings.npy")
+    # row i must be chunk i; a mismatch would return ids past the chunks
+    if len(vectors) != bm25.n_chunks:
+        raise ValueError(f"embeddings.npy has {len(vectors)} rows but the "
+                         f"index has {bm25.n_chunks} chunks")
     embedder = Embedder(config.embedding_model, config.embedding_max_length,
                         config.embedding_batch_size, config.embedding_dtype)
     semantic = SemanticRanker(embedder, vectors)

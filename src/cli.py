@@ -80,19 +80,21 @@ class RagCli:
     def _retriever(self) -> Retriever:
         """Load the index, turning a missing index into a ``CliError``."""
         processed = self.config.processed_dir
+        # semantic and hybrid also need embeddings.npy
+        command = ("'index'" if self.config.mode == "lexical"
+                   else "'index --semantic'")
         try:
             return Retriever(self.config)
         except FileNotFoundError as e:
             if Path(str(e.filename)).name == "embeddings.npy":
                 raise CliError(f"--mode {self.config.mode} needs embeddings "
-                               f"in {processed}. Run 'index --semantic' "
-                               "first.") from e
+                               f"in {processed}. Run {command} first.") from e
             raise CliError(f"No index in {processed} ({e}). "
-                           "Run the 'index' command first.") from e
+                           f"Run {command} first.") from e
         except (OSError, ValueError, KeyError, AttributeError) as e:
-            # corrupt or old-format index files
+            # corrupt, old-format or mismatched index files
             raise CliError(f"Index in {processed} is unreadable ({e}). "
-                           "Run the 'index' command again.") from e
+                           f"Run {command} again.") from e
 
     def _k(self, k: Any) -> int:
         """Return a validated ``k``, or the config default when omitted."""
