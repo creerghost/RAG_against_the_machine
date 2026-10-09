@@ -44,7 +44,8 @@ def build_index(config: RagConfig, semantic: bool = False) -> int:
             chunks.append(chunk)
             counters.append(Counter(sys.intern(t) for t in tokens))
             if semantic:
-                texts.append(chunk_text)
+                title = chunk.title or ""
+                texts.append(f"{rel_path} {title}\n{chunk_text}")
 
     bm25 = BM25Index.build(counters, config.bm25_k1, config.bm25_b)
     out_path = Path(config.processed_dir)

@@ -32,8 +32,8 @@ def ranker_for(mode: RankMode, config: RagConfig) -> Ranker:
     semantic = SemanticRanker(embedder, vectors)
     if mode == "semantic":
         return semantic
-    return HybridRanker([lexical, semantic], config.rrf_k,
-                        config.rrf_candidates)
+    return HybridRanker([lexical, semantic], list(config.rrf_weights),
+                        config.rrf_k, config.rrf_candidates)
 
 
 __all__ = ["HybridRanker", "LexicalRanker", "Ranker", "ranker_for"]

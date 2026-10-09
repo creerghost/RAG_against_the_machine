@@ -72,14 +72,19 @@ class RagConfig(BaseModel):
     # ``index --semantic True``), or both fused by RRF. Used in: cli.py,
     # ranking/__init__.py.
     mode: RankMode = "lexical"
-    # Reciprocal rank fusion constant: score = sum of 1 / (rrf_k + rank);
-    # larger values flatten the gap between top ranks. Used in:
+    # Reciprocal rank fusion constant: score = sum of weight / (rrf_k +
+    # rank); larger values flatten the gap between top ranks (5 beat the
+    # usual 60 on the public sets). Used in: ranking/__init__.py (via
+    # HybridRanker).
+    rrf_k: int = Field(default=5, ge=1)
+    # Vote weight of each ranker in hybrid mode, in order (lexical,
+    # semantic); semantic is weaker, so it only breaks near-ties. Used in:
     # ranking/__init__.py (via HybridRanker).
-    rrf_k: int = Field(default=60, ge=1)
+    rrf_weights: tuple[float, float] = (1.0, 0.5)
     # Chunks each ranker returns before fusion (at least k); a deeper pool
     # lets a chunk ranked low by one ranker still collect its vote. Used in:
     # ranking/__init__.py (via HybridRanker).
-    rrf_candidates: int = Field(default=50, ge=1)
+    rrf_candidates: int = Field(default=10, ge=1)
     # Minimum IoU for a retrieved span to count as finding a reference
     # (moulinette rule). Used in: evaluate.py (via cli.py).
     min_iou: float = Field(default=0.05, ge=0, le=1)
