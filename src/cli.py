@@ -63,11 +63,12 @@ class RagCli:
                  processed_dir: Optional[str] = None,
                  model_name: Optional[str] = None,
                  model_dtype: Optional[str] = None,
-                 embedding_dtype: Optional[str] = None) -> None:
+                 embedding_dtype: Optional[str] = None,
+                 mode: Optional[str] = None) -> None:
         """Build the config; given flags override ``RagConfig`` defaults."""
         flags = {"raw_dir": raw_dir, "processed_dir": processed_dir,
                  "model_name": model_name, "model_dtype": model_dtype,
-                 "embedding_dtype": embedding_dtype}
+                 "embedding_dtype": embedding_dtype, "mode": mode}
         overrides = {k: str(v) for k, v in flags.items() if v is not None}
         try:
             self.config = RagConfig.model_validate(overrides)
@@ -82,6 +83,10 @@ class RagCli:
         try:
             return Retriever(self.config)
         except FileNotFoundError as e:
+            if Path(str(e.filename)).name == "embeddings.npy":
+                raise CliError(f"--mode {self.config.mode} needs embeddings "
+                               f"in {processed}. Run 'index --semantic' "
+                               "first.") from e
             raise CliError(f"No index in {processed} ({e}). "
                            "Run the 'index' command first.") from e
         except (OSError, ValueError, KeyError, AttributeError) as e:

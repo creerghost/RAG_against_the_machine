@@ -25,13 +25,15 @@ def ranker_for(mode: RankMode, config: RagConfig) -> Ranker:
     # imported here: they pull in torch, which lexical mode never needs.
     from .semantic_ranker import SemanticRanker
     from ..embedder import Embedder
+    # loaded before the model so a missing file fails without the wait
+    vectors = np.load(processed_dir / "embeddings.npy")
     embedder = Embedder(config.embedding_model, config.embedding_max_length,
                         config.embedding_batch_size, config.embedding_dtype)
-    semantic = SemanticRanker(embedder, np.load(
-        processed_dir / "embeddings.npy"))
+    semantic = SemanticRanker(embedder, vectors)
     if mode == "semantic":
         return semantic
-    return HybridRanker([lexical, semantic], config.rrf_k)
+    return HybridRanker([lexical, semantic], config.rrf_k,
+                        config.rrf_candidates)
 
 
 __all__ = ["HybridRanker", "LexicalRanker", "Ranker", "ranker_for"]

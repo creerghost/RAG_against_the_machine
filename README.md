@@ -962,6 +962,7 @@ then moved into `src/` with tests. In order:
 - https://www.youtube.com/watch?v=hiJcEaiuw_E
 - https://www.youtube.com/watch?v=ruBm9WywevM
 - https://www.youtube.com/watch?v=aircAruvnKk&list=PLZHQObOWTQDNU6R1_67000Dx_ZCJB-3pi
+- https://medium.com/@devalshah1619/mathematical-intuition-behind-reciprocal-rank-fusion-rrf-explained-in-2-mins-002df0cc5e2a
 - 42 Slack (42born2code) and discussions with peers.
 
 **Tools**

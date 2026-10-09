@@ -76,6 +76,10 @@ class RagConfig(BaseModel):
     # larger values flatten the gap between top ranks. Used in:
     # ranking/__init__.py (via HybridRanker).
     rrf_k: int = Field(default=60, ge=1)
+    # Chunks each ranker returns before fusion (at least k); a deeper pool
+    # lets a chunk ranked low by one ranker still collect its vote. Used in:
+    # ranking/__init__.py (via HybridRanker).
+    rrf_candidates: int = Field(default=50, ge=1)
     # Minimum IoU for a retrieved span to count as finding a reference
     # (moulinette rule). Used in: evaluate.py (via cli.py).
     min_iou: float = Field(default=0.05, ge=0, le=1)
