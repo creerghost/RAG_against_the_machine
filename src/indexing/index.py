@@ -7,30 +7,34 @@ from pathlib import Path
 
 import numpy as np
 
-from .config import RagConfig
+from src.config import (BM25Config, ChunkingConfig, EmbeddingConfig,
+                        PathsConfig, TokenizerConfig)
 from .loader import CorpusLoader
-from .bm25 import BM25Index
-from .tokenizer import Tokenizer
+from src.retrieval import BM25Index, Tokenizer
 from .chunking import chunker_for
-from .models import Chunk, ChunkTable
-from .io_utils import save_model
+from src.models import Chunk, ChunkTable
+from src.io_utils import save_model
 
 
-def build_index(config: RagConfig, semantic: bool = False) -> int:
-    """Chunk every indexed file under ``config.raw_dir``, persist the index.
+def build_index(paths_cfg: PathsConfig, chunking_cfg: ChunkingConfig,
+                tokenizer_cfg: TokenizerConfig, bm25_cfg: BM25Config,
+                embedding_cfg: EmbeddingConfig, semantic: bool = False) -> int:
+    """Chunk every file under ``paths_cfg.raw_dir``, persist the index.
 
     With ``semantic`` also embed every chunk into ``embeddings.npy``. Returns
     the number of chunks; stored paths keep the ``raw_dir`` prefix.
     """
-    loader = CorpusLoader(config.raw_dir, config.chunker_by_extension.keys())
+    loader = CorpusLoader(paths_cfg.raw_dir,
+                          chunking_cfg.chunker_by_extension.keys())
     chunks: list[Chunk] = []
     counters: list[Counter[str]] = []
     texts: list[str] = []  # chunk texts, kept only for the embedder
-    tokenizer = Tokenizer(config.stopwords, config.min_token_length)
+    tokenizer = Tokenizer(tokenizer_cfg.stopwords,
+                          tokenizer_cfg.min_token_length)
     for path, text in loader.load():
         # this will create around 1800 tiny objects,
         # which are negligible to cache
-        chunker = chunker_for(path, config)
+        chunker = chunker_for(path, chunking_cfg)
         if chunker is None:
             continue  # never happens, just for mypy
 
@@ -39,7 +43,7 @@ def build_index(config: RagConfig, semantic: bool = False) -> int:
                 chunk.first_character_index:chunk.last_character_index]
             tokens = tokenizer.tokenize(chunk_text)
             tokens += tokenizer.tokenize(chunk.title or "")
-            rel_path = chunk.file_path.removeprefix(config.raw_dir)
+            rel_path = chunk.file_path.removeprefix(paths_cfg.raw_dir)
             tokens += tokenizer.tokenize(rel_path)
             chunks.append(chunk)
             counters.append(Counter(sys.intern(t) for t in tokens))
@@ -47,8 +51,8 @@ def build_index(config: RagConfig, semantic: bool = False) -> int:
                 title = chunk.title or ""
                 texts.append(f"{rel_path} {title}\n{chunk_text}")
 
-    bm25 = BM25Index.build(counters, config.bm25_k1, config.bm25_b)
-    out_path = Path(config.processed_dir)
+    bm25 = BM25Index.build(counters, bm25_cfg.k1, bm25_cfg.b)
+    out_path = Path(paths_cfg.processed_dir)
     bm25.save(out_path / "bm25.npz")
     save_model(ChunkTable(chunks=chunks), out_path / "chunks.json")
     # old vectors would not match the new chunk ids: drop them first, so an
@@ -56,10 +60,9 @@ def build_index(config: RagConfig, semantic: bool = False) -> int:
     embeddings_path = out_path / "embeddings.npy"
     embeddings_path.unlink(missing_ok=True)
     if semantic:
-        from .embedder import Embedder  # heavy: torch, only with --semantic
-        embedder = Embedder(config.embedding_model,
-                            config.embedding_max_length,
-                            config.embedding_batch_size,
-                            config.embedding_dtype)
+        # heavy: torch, only with --semantic
+        from src.retrieval.embedder import Embedder
+        embedder = Embedder(embedding_cfg.model, embedding_cfg.max_length,
+                            embedding_cfg.batch_size, embedding_cfg.dtype)
         np.save(embeddings_path, embedder.embed(texts, desc="Embedding"))
     return len(chunks)

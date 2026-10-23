@@ -1,8 +1,8 @@
 """Embedding (cosine similarity) ranking."""
 
 from .base import Ranker
-from ..embedder import Embedder
-from ..top_k import top_k_ids, FloatArray
+from src.retrieval.embedder import Embedder
+from src.retrieval.top_k import top_k_ids, FloatArray
 
 
 class SemanticRanker(Ranker):

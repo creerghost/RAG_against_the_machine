@@ -3,13 +3,13 @@
 from pathlib import PurePath
 from typing import Optional
 
-from ..config import RagConfig
+from src.config import ChunkingConfig
 from .base import Chunker, TextChunker
 from .markdown_chunker import MarkdownChunker
 from .python_chunker import PythonChunker
 
 
-def chunker_for(path: str, config: RagConfig) -> Optional[Chunker]:
+def chunker_for(path: str, config: ChunkingConfig) -> Optional[Chunker]:
     """Return the chunker ``config`` maps ``path``'s extension to, or None."""
     kind = config.chunker_by_extension.get(PurePath(path).suffix.lower())
     classes = (MarkdownChunker, TextChunker, PythonChunker)

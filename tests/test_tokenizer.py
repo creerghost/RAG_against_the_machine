@@ -3,13 +3,14 @@
 import pytest
 
 from src.config import RagConfig
-from src.tokenizer import Tokenizer
+from src.retrieval import Tokenizer
 
 
 def tok(text: str) -> list[str]:
     """Tokenize with the configured stopwords and minimum length."""
     config = RagConfig()
-    return Tokenizer(config.stopwords, config.min_token_length).tokenize(text)
+    return Tokenizer(config.tokenizer.stopwords,
+                     config.tokenizer.min_token_length).tokenize(text)
 
 
 @pytest.mark.parametrize("text, expected", [

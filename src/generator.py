@@ -5,22 +5,22 @@ from typing import Any
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BatchEncoding
 
-from .config import RagConfig
+from .config import GenerationConfig
 from .models import MinimalSource
 
 
 class Generator:
     """Wraps the LLM: loads it once, builds prompts, generates answers."""
-    def __init__(self, config: RagConfig) -> None:
-        """Load the tokenizer and weights of ``config.model_name``.
+    def __init__(self, config: GenerationConfig) -> None:
+        """Load the tokenizer and weights of ``config.model``.
 
-        Weights use ``config.model_dtype`` (float32 or bfloat16).
+        Weights use ``config.dtype`` (float32 or bfloat16).
         """
         self.config = config
-        self.tokenizer = AutoTokenizer.from_pretrained(config.model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(config.model)
         # Any: transformers' stubs reject generate() on the Auto* type
         self.model: Any = AutoModelForCausalLM.from_pretrained(
-            config.model_name, dtype=getattr(torch, config.model_dtype))
+            config.model, dtype=getattr(torch, config.dtype))
 
     def _n_tokens(self, text: str) -> int:
         """Return how many model tokens ``text`` takes."""

@@ -5,14 +5,14 @@ from pathlib import Path
 import pytest
 
 from src.config import RagConfig
-from src.loader import CorpusLoader
+from src.indexing import CorpusLoader
 
 RAW = Path("data/raw")
 
 
 def make_loader(root: Path) -> CorpusLoader:
     """Return a loader over ``root`` with the configured extensions."""
-    return CorpusLoader(str(root), RagConfig().chunker_by_extension)
+    return CorpusLoader(str(root), RagConfig().chunking.chunker_by_extension)
 
 
 def test_filters_sorts_and_skips(tmp_path: Path) -> None:

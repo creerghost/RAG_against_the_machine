@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 
-from ..models import Chunk
+from src.models import Chunk
 
 Span = tuple[int, int, str]
 """``(start, end, title)``: a character range ``text[start:end]``."""

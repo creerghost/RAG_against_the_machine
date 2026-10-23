@@ -123,24 +123,34 @@ Every command is `uv run python -m src <command> [options]`:
 | `answer_dataset --student_search_results_path P --save_directory D` | Generate answers for a search results file |
 | `evaluate --student_search_results_path P --dataset_path D` | Print recall@1/3/5/10 against a ground-truth dataset |
 
-Global options go **before** the command; defaults live in `src/config.py`:
+**Settings** are not command-line flags: they come from `src/config.py`,
+overridden by a `.env` file in the project root, overridden by environment
+variables. Names are `RAG_<GROUP>__<FIELD>`; [`.env.example`](.env.example)
+lists the common ones. The most useful:
 
-| Option | Default | What it sets |
+| Variable | Default | What it sets |
 |---|---|---|
-| `--raw_dir` | `data/raw` | Corpus to index |
-| `--processed_dir` | `data/processed` | Where the index is written and read |
-| `--model_name` | `Qwen/Qwen3-0.6B` | Answer model (Hugging Face id) |
-| `--model_dtype` | `float32` | Answer model precision: `float32` or `bfloat16`¹ |
-| `--embedding_dtype` | `float32` | Embedding model precision: `float32` or `bfloat16`¹ (bonus) |
-| `--mode` | `lexical` | Ranker: `lexical` (BM25), `semantic` or `hybrid` — the last two need `index --semantic` (bonus, see [Hybrid ranking](#hybrid-ranking)) |
+| `RAG_PATHS__RAW_DIR` | `data/raw` | Corpus to index |
+| `RAG_PATHS__PROCESSED_DIR` | `data/processed` | Where the index is written and read |
+| `RAG_GENERATION__MODEL` | `Qwen/Qwen3-0.6B` | Answer model (Hugging Face id) |
+| `RAG_GENERATION__DTYPE` | `float32` | Answer model precision: `float32` or `bfloat16`¹ |
+| `RAG_EMBEDDING__DTYPE` | `float32` | Embedding model precision: `float32` or `bfloat16`¹ (bonus) |
+| `RAG_RETRIEVAL__MODE` | `lexical` | Ranker: `lexical` (BM25), `semantic` or `hybrid` — the last two need `index --semantic` (bonus, see [Hybrid ranking](#hybrid-ranking)) |
+
+Every other field of `src/config.py` works the same way (BM25 `k1`/`b`, token
+budget, RRF weights, …).
 
 ¹ `bfloat16` is ≈ 1.8× faster on CPUs with native bf16 (AVX-512 BF16 or
 AMX) but can be slower on others, so the default stays `float32`.
 
 ```bash
-uv run python -m src --model_dtype bfloat16 answer "How to load a LoRA adapter"
-uv run python -m src --embedding_dtype bfloat16 index --semantic   # ≈ 2.5 min instead of ≈ 4
+cp .env.example .env          # then uncomment, e.g. RAG_GENERATION__DTYPE=bfloat16
+RAG_EMBEDDING__DTYPE=bfloat16 uv run python -m src index --semantic   # ≈ 2.5 min instead of ≈ 4
+RAG_RETRIEVAL__MODE=hybrid uv run python -m src search "How to load a LoRA adapter"
 ```
+
+A wrong value or an unknown field in a group is an error, e.g.
+`Error: RAG_BM25__K1: Input should be greater than 0`.
 
 Makefile targets: `install`, `run` (`make run ARGS="search 'lora adapter'"`),
 `debug` (same under `pdb`), `test`, `lint`, `lint-strict`, `clean`.
@@ -183,7 +193,7 @@ uv run python -m src evaluate \
   data/output/search_results/UnansweredQuestions/dataset_code_public.json \
   data/datasets/AnsweredQuestions/dataset_code_public.json --k 10 --max_context_length 2000
 
-# answers for a whole dataset (~7 s per question on CPU, ~3.4 s with --model_dtype bfloat16)
+# answers for a whole dataset (~7 s per question on CPU, ~3.4 s with RAG_GENERATION__DTYPE=bfloat16)
 uv run python -m src answer_dataset \
   --student_search_results_path data/output/search_results/UnansweredQuestions/dataset_docs_public.json \
   --save_directory data/output/search_results_and_answer/UnansweredQuestions
@@ -209,13 +219,15 @@ a sweep of 64 odd inputs over every command.
 | `--save_directory` | missing, is a file, or not writable | `--save_directory is required` / `Cannot write …` |
 | | would overwrite the input dataset itself | `… would overwrite the dataset itself; choose another directory` |
 | `evaluate --dataset_path` | has no reference sources (an `UnansweredQuestions` file) | `… has no reference sources; use an AnsweredQuestions dataset` |
-| `--raw_dir` (`index`) | missing or not a directory | `Corpus directory not found: …` |
+| `RAG_PATHS__RAW_DIR` (`index`) | missing or not a directory | `Corpus directory not found: …` |
 | `--semantic` (`index`) | not `True`/`False` (Fire keeps lowercase `false` as a string) | `--semantic must be True or False, got 'false'` |
-| `--model_dtype`, `--embedding_dtype` | not `float32` or `bfloat16` | `--embedding_dtype: Input should be 'float32' or 'bfloat16'` |
-| `--mode` | not `lexical`, `semantic` or `hybrid` | `--mode: Input should be 'lexical', 'semantic' or 'hybrid'` |
+| `RAG_GENERATION__DTYPE`, `RAG_EMBEDDING__DTYPE` | not `float32` or `bfloat16` | `RAG_EMBEDDING__DTYPE: Input should be 'float32' or 'bfloat16'` |
+| `RAG_RETRIEVAL__MODE` | not `lexical`, `semantic` or `hybrid` | `RAG_RETRIEVAL__MODE: Input should be 'lexical', 'semantic' or 'hybrid'` |
+| any `RAG_<GROUP>__<FIELD>` | unknown field inside a group (typo) | `RAG_BM25__K2: Extra inputs are not permitted` |
+| an option before the command (`--mode hybrid search …`) | settings are not CLI options | `--mode before the command: settings are not command-line options; set RAG_<GROUP>__<FIELD> in .env …` |
 | `index --semantic` | embedding model not cached and not downloadable | `Cannot load sentence-transformers/all-MiniLM-L6-v2: …` |
-| `--processed_dir` | no index yet | `No index in … Run 'index' first.` |
-| | `--mode semantic`/`hybrid` without `embeddings.npy` | `--mode hybrid needs embeddings in … Run 'index --semantic' first.` |
+| `RAG_PATHS__PROCESSED_DIR` | no index yet | `No index in … Run 'index' first.` |
+| | `RAG_RETRIEVAL__MODE=semantic`/`hybrid` without `embeddings.npy` | `RAG_RETRIEVAL__MODE=hybrid needs embeddings in … Run 'index --semantic' first.` |
 | | corrupt index files, or `embeddings.npy` with a different number of rows than chunks | `Index in … is unreadable (embeddings.npy has 31118 rows but the index has 15559 chunks). Run 'index --semantic' again.` |
 | | not writable (`index`) | `Cannot write the index: …` |
 | any argument | too long or complex for Fire's parser (e.g. a 40 kB query) | `an argument is too long or too complex to parse` |
@@ -290,18 +302,21 @@ flowchart TD
 
 | Module | Responsibility |
 |---|---|
-| `cli.py` | Fire commands; validates arguments, prints, reads/writes JSON; turns every error into a one-line message |
-| `config.py` | `RagConfig` — every tunable in one place, each with a comment saying which files use it |
+| `__main__.py` | `python -m src` entry point: refuses settings passed as options, runs Fire, turns every error into a one-line message |
+| `entrypoints/cli.py` | `RagCli` — the Fire commands: validate arguments, call `RagService`, print, read/write JSON |
+| `entrypoints/cli_utils.py` | argument checks (`as_text`, `as_positive_int`, `as_path`), printing sources, config error names |
+| `config.py` | `RagConfig` — every tunable in one place, in immutable groups (`paths`, `chunking`, `tokenizer`, `bm25`, `embedding`, `retrieval`, `generation`, `evaluation`), each field documented in its group's docstring with the files that use it |
 | `models.py` | pydantic models: the subject's data models, plus `Chunk` and `ChunkTable` |
-| `loader.py` | `CorpusLoader` — walk `raw_dir`, filter extensions, read UTF-8, skip broken/blank files |
-| `chunking/` | `Chunker` base class + `PythonChunker`, `MarkdownChunker`, `TextChunker`; `chunker_for()` picks one per file |
-| `tokenizer.py` | `Tokenizer` — identifier-aware text → tokens |
-| `bm25.py` | `BM25Index` — inverted index as numpy arrays; build, score, top-k, save/load |
-| `top_k.py` | `top_k_ids()` — positions of the k highest scores (argpartition), shared by BM25 and semantic search |
-| `embedder.py` | `Embedder` — MiniLM via transformers: texts → unit-length 384-dim vectors (mean pooling) |
-| `ranking/` | `Ranker` base class + `LexicalRanker`, `SemanticRanker`, `HybridRanker`; `ranker_for(mode)` picks one |
-| `index.py` | `build_index()` — wires loader → chunkers → tokenizer → BM25 (→ embedder), saves the files |
-| `retriever.py` | `Retriever` — gets a ranker once, `search(query, k)` → sources |
+| `indexing/loader.py` | `CorpusLoader` — walk `raw_dir`, filter extensions, read UTF-8, skip broken/blank files |
+| `indexing/chunking/` | `Chunker` base class + `PythonChunker`, `MarkdownChunker`, `TextChunker`; `chunker_for()` picks one per file |
+| `indexing/index.py` | `build_index()` — wires loader → chunkers → tokenizer → BM25 (→ embedder), saves the files |
+| `retrieval/tokenizer.py` | `Tokenizer` — identifier-aware text → tokens |
+| `retrieval/bm25.py` | `BM25Index` — inverted index as numpy arrays; build, score, top-k, save/load |
+| `retrieval/top_k.py` | `top_k_ids()` — positions of the k highest scores (argpartition), shared by BM25 and semantic search |
+| `retrieval/embedder.py` | `Embedder` — MiniLM via transformers: texts → unit-length 384-dim vectors (mean pooling) |
+| `retrieval/ranking/` | `Ranker` base class + `LexicalRanker`, `SemanticRanker`, `HybridRanker`; `ranker_for(mode)` picks one |
+| `retrieval/retriever.py` | `Retriever(ranker, chunks)` — maps a ranker's chunk ids to sources |
+| `service.py` | `RagService` — builds everything from the config (index, retriever, generator, loaded lazily); the CLI only validates, calls it and prints |
 | `generator.py` | `Generator` — loads Qwen once, builds the prompt, generates |
 | `evaluate.py` | `recall_at_k()` — the grader's metric, reimplemented |
 
@@ -321,12 +336,12 @@ A *chunk* is the unit that gets retrieved: a character range
 characters — the grader rejects any longer source. Good chunks follow the
 file's own structure, so one chunk is about one thing.
 
-All chunkers share one base class (`chunking/base.py`). Each strategy only
+All chunkers share one base class (`indexing/chunking/base.py`). Each strategy only
 answers *"where are the natural sections of this file?"* (`_sections`); the
 base class then enforces the size limit for everyone (`_split`) and builds
 the `Chunk` objects — the **Template Method** pattern. Picking a chunker by
 file extension is the **Strategy** pattern, driven by
-`config.chunker_by_extension`.
+`config.chunking.chunker_by_extension`.
 
 ### Size enforcement — shared by all chunkers
 
@@ -534,7 +549,7 @@ model is not even loaded — the fixed sentence is returned directly.
 
 Two settings make generation faster without changing what it does:
 
-- **`--model_dtype bfloat16`** loads the weights in 16-bit instead of
+- **`RAG_GENERATION__DTYPE=bfloat16`** loads the weights in 16-bit instead of
   32-bit. Writing each token means reading all 0.6 B weights from memory,
   so half the bytes is nearly twice the speed — on CPUs with native bf16
   (AVX-512 BF16 or AMX). Others emulate it and can get *slower*, so the
@@ -689,7 +704,10 @@ budget stays at 1,500 tokens.
   factory class.
 - **All tunables in `RagConfig`**, no module-level settings: paths, chunk
   size, separators, stopwords, BM25 `k1`/`b`, IoU threshold, token budget,
-  prompt. Each field documents which files use it.
+  prompt. Each field documents which files use it. Fields are grouped by
+  pipeline stage and frozen (a change makes a copy with `model_copy`), and
+  the root is a pydantic-settings `BaseSettings`, so `RAG_*` environment
+  variables and `.env` override defaults without a CLI flag per setting.
 - **Rankers as strategies with injected dependencies.** `Ranker` has one
   method; lexical, semantic and hybrid ranking are interchangeable behind
   it, and `ranker_for(mode)` is the only `if` on the mode. Constructors take
@@ -804,8 +822,8 @@ the mandatory pipeline above never loads it.
 
 | Bonus | Status | Flag |
 |---|---|---|
-| Semantic embeddings | done | `index --semantic`, `--mode semantic` |
-| Hybrid retrieval | done | `--mode hybrid` |
+| Semantic embeddings | done | `index --semantic`, `RAG_RETRIEVAL__MODE=semantic` |
+| Hybrid retrieval | done | `RAG_RETRIEVAL__MODE=hybrid` |
 | Caching | planned | — |
 | HTTP API (FastAPI) | planned | — |
 | Incremental indexing | undecided | — |
@@ -890,9 +908,9 @@ longer match the old rows.
 `rank(query, k) → [(chunk_id, score), …]` (**Strategy** pattern).
 Dependencies come in through the constructor: `LexicalRanker(bm25,
 tokenizer)`, `SemanticRanker(embedder, vectors)` — so tests can pass a tiny
-index or a fake embedder. `ranker_for(mode, config)` is the one place that
-loads files and picks the ranker; `Retriever` only maps chunk ids to
-sources. torch is imported only when a semantic ranker is built, so the
+index or a fake embedder. `ranker_for(...)` is the one place that
+loads index files and picks the ranker; `Retriever` gets the ranker and the
+chunk table injected and only maps chunk ids to sources. torch is imported only when a semantic ranker is built, so the
 default lexical `search` stays ≈ 0.2 s.
 
 **Result.** Semantic search alone is far weaker than BM25 here:
@@ -924,7 +942,7 @@ then on the full corpus:
 |---|---|---|
 | Batches of 32 in corpus order | 17.7 s | ≈ 275 s (estimated) |
 | + batches formed after sorting texts by length | 14.7 s | ≈ 229 s (estimated) |
-| + `--embedding_dtype bfloat16` | 7.6 s | **146 s** (measured) |
+| + `RAG_EMBEDDING__DTYPE=bfloat16` | 7.6 s | **146 s** (measured) |
 
 <details>
 <summary>Why each change helped</summary>
@@ -940,7 +958,7 @@ then on the full corpus:
 - **bfloat16** halves the bytes read per weight, as for the answer model.
   Each chunk's bf16 vector has cosine ≥ 0.9999 with its float32 vector, so
   rankings do not change. Off by default for the same reason as
-  `--model_dtype`: CPUs without native bf16 can get slower.
+  `RAG_GENERATION__DTYPE`: CPUs without native bf16 can get slower.
 - **`torch.inference_mode()`** around the forward pass: no gradient
   bookkeeping, less memory.
 
@@ -948,7 +966,7 @@ then on the full corpus:
 
 ### Hybrid ranking
 
-`--mode hybrid` asks both rankers and merges their lists. Their scores
+`RAG_RETRIEVAL__MODE=hybrid` asks both rankers and merges their lists. Their scores
 cannot simply be added: a BM25 score can be 3 or 30, a cosine is between −1
 and 1. **Reciprocal rank fusion** (RRF) ignores the scores and uses only
 each chunk's *position* in each list:
@@ -994,14 +1012,14 @@ code 0.879:
 - **Caveat:** ~100 questions per set, so 1 question ≈ 1 point and the
   setting was chosen on the same public sets — the gain is small and may
   not transfer to the private ones. `lexical` therefore stays the default
-  `--mode`: no torch, sub-second search.
+  mode: no torch, sub-second search.
 
 #### Lexical vs semantic vs hybrid
 
 Same chunks (`--max_chunk_size 2000`), final settings of each ranker
-(`--mode`); semantic and hybrid use the path + title + text embeddings.
+(`RAG_RETRIEVAL__MODE`); semantic and hybrid use the path + title + text embeddings.
 
-| `--mode` | docs @1 | @3 | @5 | @10 | code @1 | @3 | @5 | @10 | index | search (100 q) |
+| mode | docs @1 | @3 | @5 | @10 | code @1 | @3 | @5 | @10 | index | search (100 q) |
 |---|---|---|---|---|---|---|---|---|---|---|
 | `lexical` (BM25, default) | 0.640 | **0.840** | **0.870** | 0.890 | **0.616** | 0.828 | 0.879 | **0.919** | ≈ 4 s | ≈ 0.3 s |
 | `semantic` (MiniLM) | 0.390 | 0.600 | 0.670 | 0.760 | 0.242 | 0.485 | 0.556 | 0.657 | + ≈ 2 min | ≈ 10 s |
@@ -1060,7 +1078,7 @@ then moved into `src/` with tests. In order:
 13. **Generation speed** — bfloat16 + prompt lookup: 6.7 → 3.1 s per question.
 14. **Rankers** — `Ranker` base class, `LexicalRanker`, `ranker_for(mode)`.
 15. **Bonus: semantic search** — MiniLM embeddings, 275 → 146 s to embed.
-16. **Bonus: hybrid ranking** — weighted RRF, `--mode`: code @5 0.909.
+16. **Bonus: hybrid ranking** — weighted RRF, `RAG_RETRIEVAL__MODE`: code @5 0.909.
 17. **Planned** — caching, HTTP API (FastAPI); incremental indexing undecided.
 
 ---

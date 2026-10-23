@@ -5,14 +5,14 @@ from typing import Optional
 
 import pytest
 
-from src.chunking import (MarkdownChunker, PythonChunker, TextChunker,
-                          chunker_for)
+from src.indexing.chunking import (MarkdownChunker, PythonChunker,
+                                   TextChunker, chunker_for)
 from src.config import RagConfig
 from src.models import Chunk
 
 LORA = Path("data/raw/vllm-0.10.1/docs/features/lora.md")
 FENCE = "`" * 3
-SEPS = RagConfig().separators
+SEPS = RagConfig().chunking.separators
 
 
 def md(size: int = 2000) -> MarkdownChunker:
@@ -100,7 +100,7 @@ class TestSplit:
 
 def test_chunker_for() -> None:
     """Extension picks the strategy; unknown extensions are skipped."""
-    config = RagConfig()
+    config = RagConfig().chunking
     assert isinstance(chunker_for("a/b.md", config), MarkdownChunker)
     assert isinstance(chunker_for("a/b.PY", config), PythonChunker)
     assert isinstance(chunker_for("a/b.txt", config), TextChunker)

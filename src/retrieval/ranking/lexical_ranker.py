@@ -1,8 +1,8 @@
 """BM25 keyword ranking."""
 
 from .base import Ranker
-from ..bm25 import BM25Index
-from ..tokenizer import Tokenizer
+from src.retrieval.bm25 import BM25Index
+from src.retrieval.tokenizer import Tokenizer
 
 
 class LexicalRanker(Ranker):

@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from src.bm25 import BM25Index
+from src.retrieval import BM25Index
 
 DOCS = [["lora", "adapter", "load", "lora"], ["load", "model"],
         ["lora", "config"]]

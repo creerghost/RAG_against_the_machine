@@ -1,109 +1,154 @@
-"""All tunable settings in one place; each field says which files use it."""
+"""All tunable settings in one place, grouped by pipeline stage.
+
+Defaults below, overridden by a ``.env`` file, then by ``RAG_*`` environment
+variables (``RAG_BM25__K1=1.2``), then by CLI flags. Each field says which
+files use it.
+"""
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Ranker names accepted by --mode and ranking.ranker_for.
 RankMode = Literal["lexical", "semantic", "hybrid"]
+# Weight precisions accepted by --model_dtype and --embedding_dtype.
+DType = Literal["float32", "bfloat16"]
 
 
-class RagConfig(BaseModel):
-    """Project settings; CLI flags override the defaults."""
-    # Corpus root to index. Used in: cli.py, index.py, loader.py (via index).
+class Group(BaseModel):
+    """Base of every settings group: immutable, unknown keys rejected."""
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+
+class PathsConfig(Group):
+    """Where the corpus is read and the index is written.
+
+    raw_dir: corpus root to index; via cli.py, index.py, loader.py.
+    processed_dir: where the index is written and read; via cli.py,
+        index.py, retriever.py, ranking/__init__.py.
+    """
     raw_dir: str = "data/raw"
-    # Where the index is written and read. Used in: cli.py, index.py,
-    # retriever.py.
     processed_dir: str = "data/processed"
-    # Hugging Face id of the answer model. Used in: cli.py, generator.py.
-    model_name: str = "Qwen/Qwen3-0.6B"
-    # Weight precision of the answer model. bfloat16 is ~1.8x faster on CPUs
-    # with native bf16 (AVX512_BF16 / AMX) but can be slower without it.
-    # Used in: cli.py, generator.py.
-    model_dtype: Literal["float32", "bfloat16"] = "float32"
-    # Default chunk width in characters. Used in: cli.py,
-    # chunking/__init__.py.
+
+
+class ChunkingConfig(Group):
+    """How files are cut into chunks.
+
+    max_chunk_size: default chunk width in characters; via cli.py,
+        chunking/__init__.py.
+    max_context_length: moulinette limit on a source's width, upper bound
+        for max_chunk_size; via cli.py.
+    separators: split points tried, best first, before a hard cut; via
+        chunking/base.py, chunking/__init__.py.
+    chunker_by_extension: indexed extensions and the Chunker.kind for each;
+        other files are skipped; via chunking/__init__.py, index.py,
+        loader.py.
+    """
     max_chunk_size: int = Field(default=2000, ge=1)
-    # Moulinette limit on a source's width, upper bound for max_chunk_size.
-    # Used in: cli.py.
     max_context_length: int = Field(default=2000, ge=1)
-    # Sources per question when --k is omitted. Used in: cli.py.
-    default_k: int = Field(default=10, ge=1)
-    # Cut-offs reported by evaluate. Used in: cli.py.
-    eval_ks: tuple[int, ...] = (1, 3, 5, 10)
-    # Split points tried, best first, before a hard cut. Used in:
-    # chunking/base.py, chunking/__init__.py.
     separators: tuple[str, ...] = ("\n\n", "\n")
-    # Indexed extensions and the Chunker.kind for each; other files are
-    # skipped. Used in: chunking/__init__.py, loader.py (via index).
     chunker_by_extension: dict[str, str] = {
         ".md": "markdown", ".txt": "text", ".py": "python"}
-    # Tokens shorter than this are dropped (index and query). Used in:
-    # tokenizer.py (via index.py, retriever.py).
+
+
+class TokenizerConfig(Group):
+    """How text becomes BM25 terms (same for chunks and queries).
+
+    min_token_length: tokens shorter than this are dropped; via
+        tokenizer.py, index.py, ranking/__init__.py.
+    stopwords: words never indexed or searched (lowercase); via
+        tokenizer.py, index.py, ranking/__init__.py.
+    """
     min_token_length: int = Field(default=2, ge=1)
-    # Words never indexed or searched (lowercase). Used in: tokenizer.py
-    # (via index.py, retriever.py).
     stopwords: frozenset[str] = frozenset({
         "a", "an", "and", "are", "as", "at", "be", "by", "can", "do", "does",
         "for", "from", "how", "if", "in", "is", "it", "its", "of", "on", "or",
         "that", "the", "this", "to", "was", "what", "when", "where", "which",
         "who", "why", "with"})
-    # BM25 term-frequency saturation (~1.2-2.0). Used in: bm25.py (via
-    # index.py).
-    bm25_k1: float = Field(default=1.5, gt=0)
-    # BM25 length normalization, 0 (none) to 1 (full). Used in: bm25.py
-    # (via index.py).
-    bm25_b: float = Field(default=0.75, ge=0, le=1)
-    # Hugging Face id of the sentence embedding model (loaded with plain
-    # transformers, 384-dim vectors). Used in: embedder.py (via index.py,
-    # ranking/__init__.py).
-    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
-    # Tokens per text fed to the embedder; longer chunks are truncated
-    # (MiniLM was trained on 256). Used in: embedder.py.
-    embedding_max_length: int = Field(default=256, ge=1)
-    # Texts embedded per forward pass; higher is faster until memory runs
-    # out. Used in: embedder.py (via index.py).
-    embedding_batch_size: int = Field(default=32, ge=1)
-    # Weight precision of the embedder; bfloat16 is faster on CPUs with
-    # native bf16, like model_dtype. Used in: embedder.py (via index.py,
-    # ranking/__init__.py).
-    embedding_dtype: Literal["float32", "bfloat16"] = "float32"
-    # Which ranker scores chunks: BM25 only, embeddings only (needs
-    # ``index --semantic True``), or both fused by RRF. Used in: cli.py,
-    # ranking/__init__.py.
+
+
+class BM25Config(Group):
+    """BM25 scoring parameters.
+
+    k1: term-frequency saturation (~1.2-2.0); via bm25.py, index.py.
+    b: length normalization, 0 (none) to 1 (full); via bm25.py, index.py.
+    """
+    k1: float = Field(default=1.5, gt=0)
+    b: float = Field(default=0.75, ge=0, le=1)
+
+
+class EmbeddingConfig(Group):
+    """The sentence embedding model of semantic search (bonus).
+
+    model: Hugging Face id, loaded with plain transformers (384-dim
+        vectors); via cli.py, embedder.py, index.py, ranking/__init__.py.
+    max_length: tokens per text fed to the model; longer chunks are
+        truncated (MiniLM was trained on 256); via embedder.py.
+    batch_size: texts embedded per forward pass; higher is faster until
+        memory runs out; via embedder.py, index.py.
+    dtype: weight precision; bfloat16 is faster on CPUs with native bf16,
+        like generation.dtype; via embedder.py, index.py,
+        ranking/__init__.py.
+    """
+    model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    max_length: int = Field(default=256, ge=1)
+    batch_size: int = Field(default=32, ge=1)
+    dtype: DType = "float32"
+
+
+class RetrievalConfig(Group):
+    """Which ranker searches, and how hybrid mode fuses rankings.
+
+    default_k: sources per question when --k is omitted; via cli.py.
+    mode: BM25 only, embeddings only (needs ``index --semantic True``), or
+        both fused by RRF; via cli.py, ranking/__init__.py.
+    rrf_k: reciprocal rank fusion constant, score = sum of weight / (rrf_k
+        + rank); larger values flatten the gap between top ranks (5 beat
+        the usual 60 on the public sets); via ranking/__init__.py,
+        HybridRanker.
+    rrf_weights: vote weight of each ranker in hybrid mode, in order
+        (lexical, semantic); semantic is weaker, so it only breaks
+        near-ties; via ranking/__init__.py, HybridRanker.
+    rrf_candidates: chunks each ranker returns before fusion (at least k);
+        a deeper pool lets a chunk ranked low by one ranker still collect
+        its vote; via ranking/__init__.py, HybridRanker.
+    """
+    default_k: int = Field(default=10, ge=1)
     mode: RankMode = "lexical"
-    # Reciprocal rank fusion constant: score = sum of weight / (rrf_k +
-    # rank); larger values flatten the gap between top ranks (5 beat the
-    # usual 60 on the public sets). Used in: ranking/__init__.py (via
-    # HybridRanker).
     rrf_k: int = Field(default=5, ge=1)
-    # Vote weight of each ranker in hybrid mode, in order (lexical,
-    # semantic); semantic is weaker, so it only breaks near-ties. Used in:
-    # ranking/__init__.py (via HybridRanker).
     rrf_weights: tuple[float, float] = (1.0, 0.5)
-    # Chunks each ranker returns before fusion (at least k); a deeper pool
-    # lets a chunk ranked low by one ranker still collect its vote. Used in:
-    # ranking/__init__.py (via HybridRanker).
     rrf_candidates: int = Field(default=10, ge=1)
-    # Minimum IoU for a retrieved span to count as finding a reference
-    # (moulinette rule). Used in: evaluate.py (via cli.py).
-    min_iou: float = Field(default=0.05, ge=0, le=1)
-    # Token budget for the numbered sources in a prompt; lower is faster
-    # (reading the prompt is ~40% of generation time). Used in:
-    # generator.py.
+
+
+class GenerationConfig(Group):
+    """The answer model and its prompt.
+
+    model: Hugging Face id of the answer model; via generator.py.
+    dtype: weight precision; bfloat16 is ~1.8x faster on CPUs with native
+        bf16 (AVX512_BF16 / AMX) but can be slower without it; via
+        generator.py.
+    max_context_tokens: token budget for the numbered sources in a prompt;
+        lower is faster (reading the prompt is ~40% of generation time);
+        via generator.py.
+    max_new_tokens: upper bound on answer length in tokens; via
+        generator.py.
+    prompt_lookup_tokens: prompt lookup decoding, the model drafts up to
+        this many next tokens by matching the end of its answer against the
+        prompt (answers copy names from the sources) and verifies them in
+        one pass; greedy output is unchanged, ~20% faster with bfloat16,
+        0 disables; via generator.py.
+    no_answer: reply when there is nothing to answer from; via cli.py,
+        generator.py.
+    system_prompt: system message with the grounding rules for the answer
+        model; via generator.py.
+    """
+    model: str = "Qwen/Qwen3-0.6B"
+    dtype: DType = "float32"
     max_context_tokens: int = Field(default=1500, ge=1)
-    # Upper bound on answer length in tokens. Used in: generator.py.
     max_new_tokens: int = Field(default=200, ge=1)
-    # Prompt lookup decoding: the model drafts up to this many next tokens by
-    # matching the end of its answer against the prompt (answers copy names
-    # from the sources) and verifies them in one pass. Greedy output is
-    # unchanged; ~20% faster with bfloat16. 0 disables. Used in:
-    # generator.py.
     prompt_lookup_tokens: int = Field(default=10, ge=0)
-    # Reply when there is nothing to answer from. Used in: generator.py.
     no_answer: str = "The provided sources do not contain the answer."
-    # System message: grounding rules for the answer model. Used in:
-    # generator.py.
     system_prompt: str = (
         "You answer questions about the vLLM codebase using only the "
         "numbered sources provided by the user.\n"
@@ -118,3 +163,38 @@ class RagConfig(BaseModel):
         "and default values.\n"
         "- End the answer with the number of the source you used in "
         "brackets, for example: … is /v1/load_lora_adapter. [1]")
+
+
+class EvaluationConfig(Group):
+    """How evaluate scores search results (the moulinette's rule).
+
+    ks: cut-offs reported by evaluate; via cli.py.
+    min_iou: minimum IoU for a retrieved span to count as finding a
+        reference; via evaluate.py, cli.py.
+    """
+    ks: tuple[int, ...] = (1, 3, 5, 10)
+    min_iou: float = Field(default=0.05, ge=0, le=1)
+
+
+class RagConfig(BaseSettings):
+    """Project settings: one immutable group per pipeline stage.
+
+    paths, chunking, tokenizer, bm25, embedding, retrieval, generation,
+        evaluation: the groups above, each set as ``RAG_<GROUP>__<FIELD>``.
+    model_config: unknown keys are ignored at the root only (a shared .env
+        may hold other tools' keys); typos inside a group (RAG_BM25__K2)
+        are still rejected.
+    """
+    model_config = SettingsConfigDict(
+        frozen=True, extra="ignore", env_prefix="RAG_",
+        env_nested_delimiter="__", env_file=".env",
+        env_file_encoding="utf-8")
+
+    paths: PathsConfig = Field(default_factory=PathsConfig)
+    chunking: ChunkingConfig = Field(default_factory=ChunkingConfig)
+    tokenizer: TokenizerConfig = Field(default_factory=TokenizerConfig)
+    bm25: BM25Config = Field(default_factory=BM25Config)
+    embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
+    retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
+    generation: GenerationConfig = Field(default_factory=GenerationConfig)
+    evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
