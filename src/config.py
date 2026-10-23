@@ -26,7 +26,7 @@ class PathsConfig(Group):
 
     raw_dir: corpus root to index; via cli.py, index.py, loader.py.
     processed_dir: where the index is written and read; via cli.py,
-        index.py, retriever.py, ranking/__init__.py.
+        index.py, retriever.py, ranking/factory.py.
     """
     raw_dir: str = "data/raw"
     processed_dir: str = "data/processed"
@@ -36,13 +36,13 @@ class ChunkingConfig(Group):
     """How files are cut into chunks.
 
     max_chunk_size: default chunk width in characters; via cli.py,
-        chunking/__init__.py.
+        chunking/factory.py.
     max_context_length: moulinette limit on a source's width, upper bound
         for max_chunk_size; via cli.py.
     separators: split points tried, best first, before a hard cut; via
-        chunking/base.py, chunking/__init__.py.
+        chunking/base.py, chunking/factory.py.
     chunker_by_extension: indexed extensions and the Chunker.kind for each;
-        other files are skipped; via chunking/__init__.py, index.py,
+        other files are skipped; via chunking/factory.py, index.py,
         loader.py.
     """
     max_chunk_size: int = Field(default=2000, ge=1)
@@ -56,9 +56,9 @@ class TokenizerConfig(Group):
     """How text becomes BM25 terms (same for chunks and queries).
 
     min_token_length: tokens shorter than this are dropped; via
-        tokenizer.py, index.py, ranking/__init__.py.
+        tokenizer.py, index.py, ranking/factory.py.
     stopwords: words never indexed or searched (lowercase); via
-        tokenizer.py, index.py, ranking/__init__.py.
+        tokenizer.py, index.py, ranking/factory.py.
     """
     min_token_length: int = Field(default=2, ge=1)
     stopwords: frozenset[str] = frozenset({
@@ -82,14 +82,14 @@ class EmbeddingConfig(Group):
     """The sentence embedding model of semantic search (bonus).
 
     model: Hugging Face id, loaded with plain transformers (384-dim
-        vectors); via cli.py, embedder.py, index.py, ranking/__init__.py.
+        vectors); via cli.py, embedder.py, index.py, ranking/factory.py.
     max_length: tokens per text fed to the model; longer chunks are
         truncated (MiniLM was trained on 256); via embedder.py.
     batch_size: texts embedded per forward pass; higher is faster until
         memory runs out; via embedder.py, index.py.
     dtype: weight precision; bfloat16 is faster on CPUs with native bf16,
         like generation.dtype; via embedder.py, index.py,
-        ranking/__init__.py.
+        ranking/factory.py.
     """
     model: str = "sentence-transformers/all-MiniLM-L6-v2"
     max_length: int = Field(default=256, ge=1)
@@ -102,17 +102,17 @@ class RetrievalConfig(Group):
 
     default_k: sources per question when --k is omitted; via cli.py.
     mode: BM25 only, embeddings only (needs ``index --semantic True``), or
-        both fused by RRF; via cli.py, ranking/__init__.py.
+        both fused by RRF; via cli.py, ranking/factory.py.
     rrf_k: reciprocal rank fusion constant, score = sum of weight / (rrf_k
         + rank); larger values flatten the gap between top ranks (5 beat
-        the usual 60 on the public sets); via ranking/__init__.py,
+        the usual 60 on the public sets); via ranking/factory.py,
         HybridRanker.
     rrf_weights: vote weight of each ranker in hybrid mode, in order
         (lexical, semantic); semantic is weaker, so it only breaks
-        near-ties; via ranking/__init__.py, HybridRanker.
+        near-ties; via ranking/factory.py, HybridRanker.
     rrf_candidates: chunks each ranker returns before fusion (at least k);
         a deeper pool lets a chunk ranked low by one ranker still collect
-        its vote; via ranking/__init__.py, HybridRanker.
+        its vote; via ranking/factory.py, HybridRanker.
     """
     default_k: int = Field(default=10, ge=1)
     mode: RankMode = "lexical"

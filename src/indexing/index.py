@@ -3,7 +3,7 @@ optionally, chunk embeddings)."""
 
 import sys
 from collections import Counter
-from pathlib import Path
+from pathlib import Path, PurePath
 
 import numpy as np
 
@@ -11,7 +11,7 @@ from src.config import (BM25Config, ChunkingConfig, EmbeddingConfig,
                         PathsConfig, TokenizerConfig)
 from .loader import CorpusLoader
 from src.retrieval import BM25Index, Tokenizer
-from .chunking import chunker_for
+from .chunking import chunkers_by_extension
 from src.models import Chunk, ChunkTable
 from src.io_utils import save_model
 
@@ -31,13 +31,9 @@ def build_index(paths_cfg: PathsConfig, chunking_cfg: ChunkingConfig,
     texts: list[str] = []  # chunk texts, kept only for the embedder
     tokenizer = Tokenizer(tokenizer_cfg.stopwords,
                           tokenizer_cfg.min_token_length)
+    chunkers = chunkers_by_extension(chunking_cfg)
     for path, text in loader.load():
-        # this will create around 1800 tiny objects,
-        # which are negligible to cache
-        chunker = chunker_for(path, chunking_cfg)
-        if chunker is None:
-            continue  # never happens, just for mypy
-
+        chunker = chunkers[PurePath(path).suffix.lower()]
         for chunk in chunker.chunk(path, text):
             chunk_text = text[
                 chunk.first_character_index:chunk.last_character_index]

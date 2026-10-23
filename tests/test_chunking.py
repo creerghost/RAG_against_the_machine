@@ -6,8 +6,8 @@ from typing import Optional
 import pytest
 
 from src.indexing.chunking import (MarkdownChunker, PythonChunker,
-                                   TextChunker, chunker_for)
-from src.config import RagConfig
+                                   TextChunker, chunkers_by_extension)
+from src.config import ChunkingConfig, RagConfig
 from src.models import Chunk
 
 LORA = Path("data/raw/vllm-0.10.1/docs/features/lora.md")
@@ -98,13 +98,24 @@ class TestSplit:
             txt(0)
 
 
-def test_chunker_for() -> None:
-    """Extension picks the strategy; unknown extensions are skipped."""
-    config = RagConfig().chunking
-    assert isinstance(chunker_for("a/b.md", config), MarkdownChunker)
-    assert isinstance(chunker_for("a/b.PY", config), PythonChunker)
-    assert isinstance(chunker_for("a/b.txt", config), TextChunker)
-    assert chunker_for("a/b.png", config) is None
+def test_chunkers_by_extension() -> None:
+    """Each extension maps to its strategy; one shared object per kind."""
+    chunkers = chunkers_by_extension(RagConfig().chunking)
+    assert set(chunkers) == {".md", ".py", ".txt"}
+    assert isinstance(chunkers[".md"], MarkdownChunker)
+    assert isinstance(chunkers[".py"], PythonChunker)
+    assert isinstance(chunkers[".txt"], TextChunker)
+    config = ChunkingConfig(chunker_by_extension={".md": "markdown",
+                                                  ".rst": "markdown"})
+    shared = chunkers_by_extension(config)
+    assert shared[".md"] is shared[".rst"]
+
+
+def test_chunkers_by_extension_unknown_kind() -> None:
+    """A kind no chunker has is a config error, raised up front."""
+    config = ChunkingConfig(chunker_by_extension={".rst": "restructured"})
+    with pytest.raises(ValueError, match="restructured"):
+        chunkers_by_extension(config)
 
 
 @pytest.mark.skipif(not LORA.is_file(), reason="corpus not present")

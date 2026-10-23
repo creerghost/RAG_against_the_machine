@@ -262,7 +262,7 @@ Accepted on purpose, with a defined result:
 flowchart TD
     subgraph INDEX["index — once, ≈ 4 s"]
         RAW[("data/raw/vllm-0.10.1")] --> LOAD["CorpusLoader<br/>sorted (path, text) pairs"]
-        LOAD --> PICK{"chunker_for(path)"}
+        LOAD --> PICK{"chunkers[extension]<br/>3 chunkers, built once"}
         PICK -->|".py"| PY["PythonChunker"]
         PICK -->|".md"| MD["MarkdownChunker"]
         PICK -->|".txt"| TXT["TextChunker"]
@@ -308,13 +308,13 @@ flowchart TD
 | `config.py` | `RagConfig` — every tunable in one place, in immutable groups (`paths`, `chunking`, `tokenizer`, `bm25`, `embedding`, `retrieval`, `generation`, `evaluation`), each field documented in its group's docstring with the files that use it |
 | `models.py` | pydantic models: the subject's data models, plus `Chunk` and `ChunkTable` |
 | `indexing/loader.py` | `CorpusLoader` — walk `raw_dir`, filter extensions, read UTF-8, skip broken/blank files |
-| `indexing/chunking/` | `Chunker` base class + `PythonChunker`, `MarkdownChunker`, `TextChunker`; `chunker_for()` picks one per file |
+| `indexing/chunking/` | `Chunker` base class + `PythonChunker`, `MarkdownChunker`, `TextChunker`; `chunkers_by_extension()` (`factory.py`) builds one shared instance per type, looked up by extension |
 | `indexing/index.py` | `build_index()` — wires loader → chunkers → tokenizer → BM25 (→ embedder), saves the files |
 | `retrieval/tokenizer.py` | `Tokenizer` — identifier-aware text → tokens |
 | `retrieval/bm25.py` | `BM25Index` — inverted index as numpy arrays; build, score, top-k, save/load |
 | `retrieval/top_k.py` | `top_k_ids()` — positions of the k highest scores (argpartition), shared by BM25 and semantic search |
 | `retrieval/embedder.py` | `Embedder` — MiniLM via transformers: texts → unit-length 384-dim vectors (mean pooling) |
-| `retrieval/ranking/` | `Ranker` base class + `LexicalRanker`, `SemanticRanker`, `HybridRanker`; `ranker_for(mode)` picks one |
+| `retrieval/ranking/` | `Ranker` base class + `LexicalRanker`, `SemanticRanker`, `HybridRanker`; `ranker_for()` (`factory.py`) builds the configured one |
 | `retrieval/retriever.py` | `Retriever(ranker, chunks)` — maps a ranker's chunk ids to sources |
 | `service.py` | `RagService` — builds everything from the config (index, retriever, generator, loaded lazily); the CLI only validates, calls it and prints |
 | `generator.py` | `Generator` — loads Qwen once, builds the prompt, generates |
