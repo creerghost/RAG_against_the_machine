@@ -5,7 +5,7 @@ import sys
 import fire
 
 from .entrypoints import RagCli
-from .entrypoints.cli_utils import refuse_global_flags
+from .entrypoints.utils import refuse_global_flags
 from .io_utils import CliError
 
 

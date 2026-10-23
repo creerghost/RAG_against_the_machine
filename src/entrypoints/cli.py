@@ -19,8 +19,8 @@ from src.models import (AnsweredQuestion, MinimalAnswer, MinimalSearchResults,
                         RagDataset, StudentSearchResults,
                         StudentSearchResultsAndAnswer)
 from src.service import RagService
-from .cli_utils import (as_path, as_positive_int, as_text, env_name,
-                        print_sources)
+from .utils import (INDEX_ERRORS, as_path, as_positive_int, as_text,
+                    env_name, index_error, print_sources)
 
 
 class RagCli:
@@ -37,23 +37,12 @@ class RagCli:
 
     def _load_index(self) -> None:
         """Load the index now, turning a missing one into a ``CliError``."""
-        processed = self.config.paths.processed_dir
-        mode = self.config.retrieval.mode
-        # semantic and hybrid also need embeddings.npy
-        command = ("'index'" if mode == "lexical"
-                   else "'index --semantic'")
+        cfg = self.config
         try:
             self._service.load_index()
-        except FileNotFoundError as e:
-            if Path(str(e.filename)).name == "embeddings.npy":
-                raise CliError(f"RAG_RETRIEVAL__MODE={mode} needs embeddings "
-                               f"in {processed}. Run {command} first.") from e
-            raise CliError(f"No index in {processed} ({e}). "
-                           f"Run {command} first.") from e
-        except (OSError, ValueError, KeyError, AttributeError) as e:
-            # corrupt, old-format or mismatched index files
-            raise CliError(f"Index in {processed} is unreadable ({e}). "
-                           f"Run {command} again.") from e
+        except INDEX_ERRORS as e:
+            raise CliError(index_error(e, cfg.paths.processed_dir,
+                                       cfg.retrieval.mode)) from e
 
     def _k(self, k: Any) -> int:
         """Return a validated ``k``, or the config default when omitted."""
@@ -145,6 +134,20 @@ class RagCli:
         save_model(result, out)
         print(f"Processed {len(answers)} of {total} questions")
         print(f"Saved student_search_results_and_answer to {out}")
+
+    def serve(self) -> None:
+        """Serve search and answers over HTTP at RAG_SERVER__HOST:PORT."""
+        import uvicorn  # heavy, only for this command
+
+        from .server import RagServer
+        cfg = self.config
+        self._load_index()  # missing index: a clean error, not a 503
+        try:
+            self._service.load_generator()
+        except OSError as e:
+            raise CliError(f"Cannot load {cfg.generation.model}: {e}") from e
+        uvicorn.run(RagServer(self._service).app, host=cfg.server.host,
+                    port=cfg.server.port)
 
     def evaluate(self, student_search_results_path: Any = None,
                  dataset_path: Any = None) -> None:

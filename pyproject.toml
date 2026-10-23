@@ -19,6 +19,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "flake8>=7.0",
+    "httpx>=0.28.1",
     "mypy>=1.10",
     "pytest>=8.0",
 ]

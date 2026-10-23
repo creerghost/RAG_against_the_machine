@@ -1,8 +1,8 @@
 """All tunable settings in one place, grouped by pipeline stage.
 
 Defaults below, overridden by a ``.env`` file, then by ``RAG_*`` environment
-variables (``RAG_BM25__K1=1.2``), then by CLI flags. Each field says which
-files use it.
+variables (``RAG_BM25__K1=1.2``); settings are never CLI flags. Each field
+says which files use it.
 """
 
 from typing import Literal
@@ -176,11 +176,22 @@ class EvaluationConfig(Group):
     min_iou: float = Field(default=0.05, ge=0, le=1)
 
 
+class ServerConfig(Group):
+    """The local HTTP API (bonus).
+
+    host: interface the server binds; 127.0.0.1 keeps it local; via cli.py.
+    port: TCP port of the server; via cli.py.
+    """
+    host: str = "127.0.0.1"
+    port: int = Field(default=8000, ge=1, le=65535)
+
+
 class RagConfig(BaseSettings):
     """Project settings: one immutable group per pipeline stage.
 
     paths, chunking, tokenizer, bm25, embedding, retrieval, generation,
-        evaluation: the groups above, each set as ``RAG_<GROUP>__<FIELD>``.
+        evaluation, server: the groups above, each set as
+        ``RAG_<GROUP>__<FIELD>``.
     model_config: unknown keys are ignored at the root only (a shared .env
         may hold other tools' keys); typos inside a group (RAG_BM25__K2)
         are still rejected.
@@ -198,3 +209,4 @@ class RagConfig(BaseSettings):
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
     generation: GenerationConfig = Field(default_factory=GenerationConfig)
     evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
+    server: ServerConfig = Field(default_factory=ServerConfig)

@@ -1,10 +1,15 @@
-"""Argument checks and output helpers for the Fire CLI."""
+"""Argument checks, output helpers and index error messages shared by the
+CLI and the HTTP server."""
 
 from pathlib import Path
 from typing import Any
 
 from src.io_utils import CliError
 from src.models import MinimalSource
+
+
+# errors of a missing, corrupt, old-format or mismatched index
+INDEX_ERRORS = (OSError, ValueError, KeyError, AttributeError)
 
 
 def env_name(loc: tuple[Any, ...]) -> str:
@@ -59,3 +64,17 @@ def refuse_global_flags(args: list[str]) -> None:
                            "settings are not command-line options; set "
                            "RAG_<GROUP>__<FIELD> in .env or the environment "
                            "(see .env.example)")
+
+
+def index_error(error: Exception, processed_dir: str, mode: str) -> str:
+    """Return what went wrong loading the index and the command to fix it."""
+    # semantic and hybrid also need embeddings.npy
+    command = "'index'" if mode == "lexical" else "'index --semantic'"
+    if isinstance(error, FileNotFoundError):
+        if Path(str(error.filename)).name == "embeddings.npy":
+            return (f"RAG_RETRIEVAL__MODE={mode} needs embeddings in "
+                    f"{processed_dir}. Run {command} first.")
+        return (f"No index in {processed_dir} ({error}). "
+                f"Run {command} first.")
+    return (f"Index in {processed_dir} is unreadable ({error}). "
+            f"Run {command} again.")

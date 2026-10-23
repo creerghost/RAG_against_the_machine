@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>vllm search</title>
+<style>
+  :root {
+    --ground: #fff; --ink: #202124; --link: #1a0dab; --visited: #660099;
+    --url: #006621; --snippet: #4d5156; --meta: #70757a; --rule: #e8eaed;
+    --field: #dfe1e5; --error: #c5221f; --mark: #d2e3fc;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #202124; --ink: #e8eaed; --link: #8ab4f8; --visited: #c58af9;
+      --url: #81c995; --snippet: #bdc1c6; --meta: #9aa0a6; --rule: #3c4043;
+      --field: #5f6368; --error: #f28b82; --mark: #394457;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  ::selection { background: var(--mark); }
+  html { scrollbar-color: var(--field) var(--ground); }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font: 14px/1.58 Arial, Helvetica, sans-serif;
+    font-variant-numeric: tabular-nums;
+  }
+  a { color: var(--link); text-decoration: none; text-underline-offset: 2px; }
+  a:hover { text-decoration: underline; }
+  .examples a:visited { color: var(--visited); }
+  a:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+
+  /* one grid: the wordmark column, then the results column */
+  .page {
+    display: grid; grid-template-columns: 9.5rem minmax(0, 38rem);
+    column-gap: 1.25rem; padding: 0 1.25rem;
+  }
+  header {
+    grid-column: 1 / -1; display: grid; grid-template-columns: subgrid;
+    align-items: center; margin: 0 -1.25rem; padding: 1.4rem 1.25rem 1.1rem;
+    border-bottom: 1px solid var(--rule);
+  }
+  .mark { font-size: 22px; letter-spacing: -0.01em; color: var(--ink); }
+  .mark b { font-weight: 700; }
+  .mark:hover { text-decoration: none; }
+  form { margin: 0; }
+  #q {
+    width: 100%; height: 40px; padding: 0 16px; font: 16px Arial, sans-serif;
+    color: var(--ink); caret-color: var(--link); background: var(--ground);
+    border: 1px solid var(--field); border-radius: 20px; outline: none;
+  }
+  #q:hover { border-color: var(--meta); }
+  #q:focus-visible { border-color: var(--link); }
+  main { grid-column: 2; min-width: 0; padding-bottom: 4rem; }
+
+  #stats { margin: 0.7rem 0 1.4rem; color: var(--meta); font-size: 13px; }
+  #stats.error { color: var(--error); }
+  .examples { margin: 0; padding: 0; list-style: none; font-size: 15px; }
+  .examples li { margin: 0 0 0.45rem; }
+
+  #answer {
+    margin: 0 0 1.6rem; padding: 0 0 1.4rem;
+    border-bottom: 1px solid var(--rule);
+  }
+  #answer .label { margin: 0 0 0.35rem; color: var(--meta); font-size: 13px; }
+  #answer .label b { color: var(--ink); }
+  #answer .text { margin: 0; font-size: 16px; line-height: 1.6; }
+  #answer .text.pending, #answer .text.none { color: var(--meta); }
+  #answer .text a { font-size: 13px; }
+  #answer code { font: 14.5px ui-monospace, Menlo, Consolas, monospace; }
+
+  .result { margin: 0 0 1.55rem; }
+  .crumb { color: var(--url); font-size: 13px; overflow-wrap: anywhere; }
+  .crumb .range { color: var(--meta); }
+  .title { display: inline-block; font-size: 19px; line-height: 1.3; }
+  .title .n { color: var(--meta); font-size: 13px; }
+  .snippet { margin: 0.2rem 0 0; color: var(--snippet); overflow-wrap: anywhere; }
+  .snippet b { color: var(--ink); }
+  .result pre {
+    margin: 0.6rem 0 0; color: var(--ink); white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font: 12.5px/1.55 ui-monospace, Menlo, Consolas, monospace;
+  }
+  [hidden] { display: none !important; }
+
+  @media (max-width: 720px) {
+    .page { grid-template-columns: minmax(0, 1fr); padding: 0 1rem; }
+    header {
+      grid-template-columns: minmax(0, 1fr); row-gap: 0.8rem;
+      margin: 0 -1rem; padding: 1rem 1rem 0.9rem;
+    }
+    main { grid-column: 1; }
+    .title { font-size: 17px; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <a class="mark" href="/"><b>vllm</b> search</a>
+    <form id="ask" role="search">
+      <input id="q" name="q" type="search" autocomplete="off" autofocus
+             aria-label="Question about the vLLM 0.10.1 code and docs"
+             placeholder="Ask about the vLLM 0.10.1 code and docs">
+    </form>
+  </header>
+  <main>
+    <p id="stats" aria-live="polite"></p>
+    <ul class="examples" id="examples">
+      <li><a href="/?q=How+do+you+achieve+reproducible+results+in+vLLM%3F">How do you achieve reproducible results in vLLM?</a></li>
+      <li><a href="/?q=How+can+you+manually+set+the+attention+backend+in+vLLM%3F">How can you manually set the attention backend in vLLM?</a></li>
+      <li><a href="/?q=What+HTTP+endpoint+is+used+to+dynamically+load+a+LoRA+adapter+in+vLLM%3F">What HTTP endpoint is used to dynamically load a LoRA adapter in vLLM?</a></li>
+    </ul>
+    <section id="answer" hidden aria-live="polite">
+      <p class="label"></p>
+      <p class="text"></p>
+    </section>
+    <div id="results"></div>
+  </main>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const NO_ANSWER = "The provided sources do not contain the answer.";
+const STOPWORDS = new Set(("a an and are as at be by can do does for from how if " +
+  "in is it its of on or that the this to was what when where which who why " +
+  "with you your use used vllm").split(" "));
+let health = null;  // /health: chunks, mode, model
+let run = 0;        // id of the latest query; older responses are dropped
+let shown = null;   // location.search on screen; hash-only changes keep it
+
+function about() {
+  if (!health) return "";
+  return health.chunks ? `${health.chunks} chunks · ${health.mode} ranking`
+                       : health.detail;
+}
+
+function stats(text, isError = false) {
+  $("stats").textContent = text;
+  $("stats").className = isError ? "error" : "";
+}
+
+function message(data, response) {
+  const d = data.detail;
+  if (Array.isArray(d)) {  // pydantic 422: one entry per bad field
+    return d.map((e) => `${e.loc.slice(1).join(".")}: ${e.msg}`).join("; ");
+  }
+  return d || `${response.status} ${response.statusText}`;
+}
+
+async function post(path, body) {
+  const response = await fetch(path, {
+    method: "POST", headers: {"content-type": "application/json"},
+    body: JSON.stringify(body)});
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(message(data, response));
+  return data;
+}
+
+function terms(query) {
+  return [...new Set(query.toLowerCase().match(/[a-z0-9_]{3,}/g) || [])]
+    .filter((t) => !STOPWORDS.has(t));
+}
+
+function bolded(text, words) {
+  // text nodes with every word starting with a query word in <b>
+  const out = document.createDocumentFragment();
+  if (!words.length) { out.append(text); return out; }
+  const escaped = words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const pattern = new RegExp(`\\b((?:${escaped.join("|")})\\w*)`, "gi");
+  text.split(pattern).forEach((part, i) => {
+    if (i % 2) {
+      const b = document.createElement("b");
+      b.textContent = part;
+      out.append(b);
+    } else {
+      out.append(part);
+    }
+  });
+  return out;
+}
+
+function snippet(text, words) {
+  // about two lines around the first query word, whitespace collapsed
+  const flat = text.replace(/[#`*>|]+/g, " ").replace(/\s+/g, " ").trim();
+  const lower = flat.toLowerCase();
+  const hits = words.map((w) => lower.indexOf(w)).filter((i) => i >= 0);
+  let start = hits.length ? Math.max(0, Math.min(...hits) - 70) : 0;
+  if (start) start = flat.indexOf(" ", start) + 1 || start;
+  let end = Math.min(flat.length, start + 240);
+  const cut = flat.lastIndexOf(" ", end);
+  if (end < flat.length && cut > start) end = cut;
+  return (start ? "… " : "") + flat.slice(start, end).trim() +
+    (end < flat.length ? " …" : "");
+}
+
+function crumb(path) {
+  // data/raw/vllm-0.10.1/docs/features/lora.md -> vllm-0.10.1 › docs › features
+  const parts = path.replace(/^data\/raw\//, "").split("/");
+  return {file: parts.pop(), trail: parts.join(" › ")};
+}
+
+function toggle(item, open) {
+  const text = item.querySelector("pre");
+  text.hidden = open === undefined ? !text.hidden : !open;
+  item.querySelector(".title").setAttribute("aria-expanded", !text.hidden);
+}
+
+function showResults(sources, query) {
+  const words = terms(query);
+  const list = $("results");
+  list.replaceChildren();
+  sources.forEach((s, i) => {
+    const {file, trail} = crumb(s.file_path);
+    const item = document.createElement("div");
+    item.className = "result";
+    item.id = `s${i + 1}`;
+
+    const where = document.createElement("div");
+    where.className = "crumb";
+    const range = document.createElement("span");
+    range.className = "range";
+    range.textContent =
+      ` · chars ${s.first_character_index}–${s.last_character_index}`;
+    where.append(trail, range);
+
+    const title = document.createElement("a");
+    title.className = "title";
+    title.href = `#s${i + 1}`;
+    title.title = s.file_path;
+    title.setAttribute("aria-expanded", "false");
+    const n = document.createElement("span");
+    n.className = "n";
+    n.textContent = ` [${i + 1}]`;
+    title.append(file, n);
+    title.addEventListener("click", (event) => {
+      event.preventDefault();
+      toggle(item);
+    });
+
+    const short = document.createElement("p");
+    short.className = "snippet";
+    const full = document.createElement("pre");
+    full.hidden = true;
+    if (s.text) {
+      short.append(bolded(snippet(s.text, words), words));
+      full.textContent = s.text;
+    } else {  // file changed or removed since indexing
+      short.textContent = "This file can't be read any more; re-run index.";
+    }
+    item.append(where, title, short, full);
+    list.append(item);
+  });
+}
+
+function showAnswer(answer, nSources) {
+  const text = $("answer").querySelector(".text");
+  text.replaceChildren();
+  if (answer.trim() === NO_ANSWER) {  // a state, not an answer
+    text.className = "text none";
+    text.textContent = "The sources below don't contain the answer.";
+    return;
+  }
+  text.className = "text";
+  answer.split(/(\[\d+\]|`[^`]+`)/).forEach((part) => {
+    if (/^`[^`]+`$/.test(part)) {  // `name` from the sources, as code
+      const code = document.createElement("code");
+      code.textContent = part.slice(1, -1);
+      text.append(code);
+      return;
+    }
+    const cited = part.match(/^\[(\d+)\]$/);
+    const item = cited && Number(cited[1]) <= nSources && $(`s${cited[1]}`);
+    if (item) {  // [n] opens and jumps to result n
+      const link = document.createElement("a");
+      link.href = `#s${cited[1]}`;
+      link.textContent = part;
+      link.addEventListener("click", (event) => {
+        event.preventDefault();  // no history entry, no re-run
+        toggle(item, true);
+        item.scrollIntoView({block: "start"});
+      });
+      text.append(link);
+    } else {
+      text.append(part);
+    }
+  });
+}
+
+function label(detail) {
+  const model = health && health.model
+    ? health.model.replace(/^.*\//, "") : "local model";
+  const name = document.createElement("b");
+  name.textContent = "Answer";
+  $("answer").querySelector(".label").replaceChildren(
+    name, ` · ${model} · ${detail}`);
+}
+
+function seconds(start) {
+  return ((performance.now() - start) / 1000).toFixed(1);
+}
+
+async function search(query, k) {
+  const id = ++run;
+  const body = {query, k: k ? Number(k) : null};
+  document.title = `${query} - vllm search`;
+  $("examples").hidden = true;
+  $("answer").hidden = true;
+  $("results").replaceChildren();
+  stats("Searching…");
+  let timer = 0;
+  try {
+    const start = performance.now();
+    const found = await post("/search", body);
+    if (id !== run) return;
+    const n = found.sources.length;
+    if (!n) {
+      stats("No span matches this question. Try other words.");
+      return;
+    }
+    const took = ((performance.now() - start) / 1000).toFixed(3);
+    stats(`${n} span${n === 1 ? "" : "s"} in ${took} s` +
+          (health && health.chunks ? ` · ${about()}` : ""));
+    showResults(found.sources, query);
+
+    const pending = "Generating…";
+    const began = performance.now();
+    const text = $("answer").querySelector(".text");
+    label("reading the top sources");
+    text.className = "text pending";
+    text.textContent = pending;
+    $("answer").hidden = false;
+    timer = setInterval(() => {
+      text.textContent = `${pending} ${seconds(began)} s`;
+    }, 100);
+    const answered = await post("/answer", body);
+    if (id !== run) return;
+    clearInterval(timer);
+    label(`${seconds(began)} s`);
+    showAnswer(answered.answer, n);
+  } catch (error) {
+    if (id !== run) return;
+    $("answer").hidden = true;
+    stats(error.message, true);
+  } finally {
+    clearInterval(timer);
+  }
+}
+
+function fromUrl() {
+  // the address is the state: /?q=...&k=...
+  shown = location.search;
+  const params = new URLSearchParams(location.search);
+  const query = (params.get("q") || "").trim();
+  $("q").value = query;
+  if (query) {
+    search(query, params.get("k"));
+  } else {
+    run++;
+    document.title = "vllm search";
+    $("examples").hidden = false;
+    $("answer").hidden = true;
+    $("results").replaceChildren();
+    stats(health ? about() : "");
+  }
+}
+
+$("ask").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const query = $("q").value.trim();
+  const params = new URLSearchParams(location.search);
+  if (query) params.set("q", query); else params.delete("q");
+  history.pushState(null, "", `/?${params}`);
+  fromUrl();
+});
+window.addEventListener("popstate", () => {
+  if (location.search !== shown) fromUrl();
+});
+
+fetch("/health").then((r) => r.json()).then((h) => { health = h; })
+  .catch(() => {
+    health = {detail: "The server isn't reachable. Start it with make serve."};
+  })
+  .finally(() => {
+    if (!$("q").value) stats(about(), !health.chunks);
+  });
+fromUrl();
+</script>
+</body>
+</html>

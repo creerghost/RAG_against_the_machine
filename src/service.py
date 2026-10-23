@@ -52,7 +52,12 @@ class RagService:
         reply, without loading the model."""
         if not sources:
             return self.config.generation.no_answer
+        return str(self.load_generator().answer(question, sources))
+
+    def load_generator(self) -> Any:
+        """Return the answer model, loading it once; OSError if it cannot be
+        loaded."""
         if self._generator is None:
             from .generator import Generator  # heavy: torch takes ~2 s
             self._generator = Generator(self.config.generation)
-        return str(self._generator.answer(question, sources))
+        return self._generator

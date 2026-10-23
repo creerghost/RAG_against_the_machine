@@ -122,6 +122,7 @@ Every command is `uv run python -m src <command> [options]`:
 | `answer "<query>" [--k 10]` | Retrieve, then generate an answer with Qwen |
 | `answer_dataset --student_search_results_path P --save_directory D` | Generate answers for a search results file |
 | `evaluate --student_search_results_path P --dataset_path D` | Print recall@1/3/5/10 against a ground-truth dataset |
+| `serve` | Serve search and answers over a local HTTP API (bonus, see [HTTP API](#http-api)) |
 
 **Settings** are not command-line flags: they come from `src/config.py`,
 overridden by a `.env` file in the project root, overridden by environment
@@ -135,6 +136,7 @@ lists the common ones. The most useful:
 | `RAG_GENERATION__MODEL` | `Qwen/Qwen3-0.6B` | Answer model (Hugging Face id) |
 | `RAG_GENERATION__DTYPE` | `float32` | Answer model precision: `float32` or `bfloat16`¹ |
 | `RAG_EMBEDDING__DTYPE` | `float32` | Embedding model precision: `float32` or `bfloat16`¹ (bonus) |
+| `RAG_SERVER__HOST` / `RAG_SERVER__PORT` | `127.0.0.1` / `8000` | Address of `serve` (bonus) |
 | `RAG_RETRIEVAL__MODE` | `lexical` | Ranker: `lexical` (BM25), `semantic` or `hybrid` — the last two need `index --semantic` (bonus, see [Hybrid ranking](#hybrid-ranking)) |
 
 Every other field of `src/config.py` works the same way (BM25 `k1`/`b`, token
@@ -153,7 +155,7 @@ A wrong value or an unknown field in a group is an error, e.g.
 `Error: RAG_BM25__K1: Input should be greater than 0`.
 
 Makefile targets: `install`, `run` (`make run ARGS="search 'lora adapter'"`),
-`debug` (same under `pdb`), `test`, `lint`, `lint-strict`, `clean`.
+`debug` (same under `pdb`), `serve` (the HTTP API), `test`, `lint`, `lint-strict`, `clean`.
 
 ---
 
@@ -304,8 +306,9 @@ flowchart TD
 |---|---|
 | `__main__.py` | `python -m src` entry point: refuses settings passed as options, runs Fire, turns every error into a one-line message |
 | `entrypoints/cli.py` | `RagCli` — the Fire commands: validate arguments, call `RagService`, print, read/write JSON |
-| `entrypoints/cli_utils.py` | argument checks (`as_text`, `as_positive_int`, `as_path`), printing sources, config error names |
-| `config.py` | `RagConfig` — every tunable in one place, in immutable groups (`paths`, `chunking`, `tokenizer`, `bm25`, `embedding`, `retrieval`, `generation`, `evaluation`), each field documented in its group's docstring with the files that use it |
+| `entrypoints/utils.py` | argument checks (`as_text`, `as_positive_int`, `as_path`), printing sources, config error names, index error messages shared with the server |
+| `entrypoints/server.py` | `RagServer(service)` — the FastAPI app (bonus, `.app`): `/health`, `/search`, `/answer` over `RagService`, and the page `/` (`static/index.html`) |
+| `config.py` | `RagConfig` — every tunable in one place, in immutable groups (`paths`, `chunking`, `tokenizer`, `bm25`, `embedding`, `retrieval`, `generation`, `evaluation`, `server`), each field documented in its group's docstring with the files that use it |
 | `models.py` | pydantic models: the subject's data models, plus `Chunk` and `ChunkTable` |
 | `indexing/loader.py` | `CorpusLoader` — walk `raw_dir`, filter extensions, read UTF-8, skip broken/blank files |
 | `indexing/chunking/` | `Chunker` base class + `PythonChunker`, `MarkdownChunker`, `TextChunker`; `chunkers_by_extension()` (`factory.py`) builds one shared instance per type, looked up by extension |
@@ -316,7 +319,7 @@ flowchart TD
 | `retrieval/embedder.py` | `Embedder` — MiniLM via transformers: texts → unit-length 384-dim vectors (mean pooling) |
 | `retrieval/ranking/` | `Ranker` base class + `LexicalRanker`, `SemanticRanker`, `HybridRanker`; `ranker_for()` (`factory.py`) builds the configured one |
 | `retrieval/retriever.py` | `Retriever(ranker, chunks)` — maps a ranker's chunk ids to sources |
-| `service.py` | `RagService` — builds everything from the config (index, retriever, generator, loaded lazily); the CLI only validates, calls it and prints |
+| `service.py` | `RagService` — builds everything from the config (index, retriever, generator, loaded lazily); the CLI and the HTTP server only validate, call it and print or return JSON |
 | `generator.py` | `Generator` — loads Qwen once, builds the prompt, generates |
 | `evaluate.py` | `recall_at_k()` — the grader's metric, reimplemented |
 
@@ -817,7 +820,7 @@ This also shrank what `search` loads:
 
 ## Bonus
 
-Two of the subject's five bonuses are done; everything here is opt-in, and
+Three of the subject's five bonuses are done; everything here is opt-in, and
 the mandatory pipeline above never loads it.
 
 | Bonus | Status | Flag |
@@ -825,7 +828,7 @@ the mandatory pipeline above never loads it.
 | Semantic embeddings | done | `index --semantic`, `RAG_RETRIEVAL__MODE=semantic` |
 | Hybrid retrieval | done | `RAG_RETRIEVAL__MODE=hybrid` |
 | Caching | planned | — |
-| HTTP API (FastAPI) | planned | — |
+| HTTP API (FastAPI) | done | `serve`, `RAG_SERVER__HOST`, `RAG_SERVER__PORT` |
 | Incremental indexing | undecided | — |
 
 ### Semantic search
@@ -1034,6 +1037,41 @@ Same chunks (`--max_chunk_size 2000`), final settings of each ranker
   slower search (still far under the 90 s limit). `lexical` stays the
   default; hybrid is opt-in.
 
+### HTTP API
+
+`serve` exposes search and answers as JSON on `127.0.0.1:8000` (FastAPI +
+uvicorn). It loads the index and Qwen **before** listening, so every request
+is fast and a missing index is the usual one-line CLI error, not a failed
+request. <http://127.0.0.1:8000/> is a search page laid out like web search
+results: the sources appear as soon as the search returns (file, path,
+character range, a snippet with the query words in bold; click to read the
+whole span), then the answer above them, whose `[n]` citations open source
+*n*. The address is the state, so `/?q=How+do+I+load+a+LoRA+adapter&k=3`
+reproduces a query. Interactive docs, where every
+route can be tried, are at <http://127.0.0.1:8000/docs>.
+
+| Route | Body | Returns |
+|---|---|---|
+| `GET /` | — | the search page (`src/entrypoints/static/index.html`) |
+| `GET /health` | — | `{"status": "ok", "chunks": 15559, "mode": "lexical", "model": "Qwen/Qwen3-0.6B"}` |
+| `POST /search` | `{"query": "...", "k": 5}` (`k` optional, default `RAG_RETRIEVAL__DEFAULT_K`) | `{"query", "k", "sources": [...]}`: each source is a `MinimalSource` plus its `text` |
+| `POST /answer` | same | the `/search` response plus `"answer"` |
+
+```bash
+make serve          # or: RAG_SERVER__PORT=9000 uv run python -m src serve
+curl -s -X POST localhost:8000/answer -H 'content-type: application/json' \
+     -d '{"query": "Which HTTP endpoint loads a LoRA adapter?", "k": 3}'
+# {"query":"Which HTTP endpoint loads a LoRA adapter?","k":3,
+#  "sources":[{"file_path":"data/raw/vllm-0.10.1/docs/features/lora.md",
+#              "first_character_index":4695,"last_character_index":6100,
+#              "text":"### Using API Endpoints\n\nLoading a LoRA Adapter: ..."}, ...],
+#  "answer":"The HTTP endpoint that loads a LoRA adapter is `/v1/load_lora_adapter` [1]."}
+```
+
+An empty or blank query, `k < 1` or a missing field is a `422` with a JSON
+`detail`; a missing or corrupt index is a `503` with the same message the
+CLI prints.
+
 ### Bonus design decisions and challenges
 
 - **Hybrid ranking as a Composite.** `HybridRanker` holds a list of
@@ -1041,6 +1079,17 @@ Same chunks (`--max_chunk_size 2000`), final settings of each ranker
   of BM25 or embeddings, and a third ranker would be one more list entry.
   Ranks instead of scores, because BM25 and cosine scores have different
   scales.
+- **One service, two front ends.** The HTTP server is ~80 lines because
+  `RagService` already does everything; the server only validates the body
+  (pydantic) and turns errors into status codes. The index error messages
+  live in `entrypoints/utils.py`, shared by both.
+- **One lock for all requests.** Routes are plain `def`, so FastAPI runs
+  them in a thread pool; a `threading.Lock` makes them run one at a time.
+  Two CPU generations at once would only slow each other down, and the lock
+  also stops two first requests from loading the model twice. Cost: a
+  `/search` waits behind a running `/answer` (search itself takes
+  milliseconds). `async def` routes would be worse: generation would block
+  the event loop, so even `/health` would hang.
 - **Embeddings without `sentence-transformers`.** `AutoModel` +
   hand-written mean pooling is ~15 lines and keeps the dependency list to
   transformers + torch, already needed for Qwen.
@@ -1079,7 +1128,8 @@ then moved into `src/` with tests. In order:
 14. **Rankers** — `Ranker` base class, `LexicalRanker`, `ranker_for(mode)`.
 15. **Bonus: semantic search** — MiniLM embeddings, 275 → 146 s to embed.
 16. **Bonus: hybrid ranking** — weighted RRF, `RAG_RETRIEVAL__MODE`: code @5 0.909.
-17. **Planned** — caching, HTTP API (FastAPI); incremental indexing undecided.
+17. **Bonus: HTTP API** — FastAPI `serve` over `RagService`, `/search`, `/answer`, `/health`.
+18. **Planned** — caching; incremental indexing undecided.
 
 ---
 

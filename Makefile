@@ -2,7 +2,7 @@ ARGS ?= index --max_chunk_size 2000
 MYPY_FLAGS = --warn-return-any --warn-unused-ignores --ignore-missing-imports \
 	--disallow-untyped-defs --check-untyped-defs
 
-.PHONY: install run debug clean lint lint-strict test
+.PHONY: install run debug serve clean lint lint-strict test
 
 install:
 	uv sync
@@ -12,6 +12,9 @@ run:
 
 debug:
 	uv run python -m pdb -m src $(ARGS)
+
+serve:
+	uv run python -m src serve
 
 clean:
 	find . -type d \( -name __pycache__ -o -name .mypy_cache -o -name .pytest_cache \) \
